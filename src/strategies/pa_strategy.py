@@ -21,6 +21,14 @@ class PriceActionStrategy(Strategy):
         # 3. 使用我们标准化的数据调用分析函数
         self.analyzed_data = analyze_price_action(lowercase_df)
 
+        # --- 诊断日志：打印波段点 ---
+        swing_highs = self.analyzed_data[self.analyzed_data['is_swing_high']]
+        swing_lows = self.analyzed_data[self.analyzed_data['is_swing_low']]
+        logger.debug(f"Found {len(swing_highs)} swing highs:")
+        logger.debug(swing_highs[['high', 'is_swing_high']])
+        logger.debug(f"Found {len(swing_lows)} swing lows:")
+        logger.debug(swing_lows[['low', 'is_swing_low']])
+
     def next(self):
         current_date = self.data.index[-1]
         try:

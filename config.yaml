@@ -19,5 +19,5 @@ risk:
 
 # Logging Configuration
 logging:
-  level: "INFO"  # 日志级别 (DEBUG, INFO, WARNING, ERROR)
+  level: "DEBUG"  # 日志级别 (DEBUG, INFO, WARNING, ERROR)
   
