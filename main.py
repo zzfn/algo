@@ -3,13 +3,16 @@ import yaml
 import arrow
 from dotenv import load_dotenv
 from loguru import logger
+import asyncio
+import os
 
 # 核心模块导入
 from src.utils.logger_setup import setup_logging
 from src.data.alpaca_loader import load_historical_data
 from src.backtesting.engine import run_pa_backtest
+from alpaca.data.live.stock import StockDataStream
 
-def run_live(args, config):
+async def run_live(args, config):
     """
     主函数：执行实盘交易
     """
@@ -20,9 +23,27 @@ def run_live(args, config):
         return
 
     logger.info(f"Using config file: {args.config}")
-    logger.info(f"Trading symbols from config: {symbols}")
+    logger.info(f"Subscribing to symbols: {symbols}")
     
-    logger.warning("Live trading logic not yet implemented.")
+    # --- WebSocket 连接逻辑 ---
+    # 1. 初始化 live client
+    wss_client = StockDataStream(
+        config['alpaca']['api_key'],
+        config['alpaca']['secret_key']
+    )
+
+    # 2. 定义一个异步的处理器，用来处理接收到的数据
+    async def trade_handler(data):
+        # 当接收到新的交易数据时，这个函数会被调用
+        # data 对象包含了交易的所有信息
+        logger.info(f"Received trade: {data}")
+
+    # 3. 订阅我们感兴趣的交易品种
+    for symbol in symbols:
+        wss_client.subscribe_trades(trade_handler, symbol)
+
+    # 4. 启动并运行 WebSocket 客户端
+    await wss_client._run_forever()
 
 def run_backtest(args, config):
     """
@@ -130,10 +151,24 @@ def main():
         print(f"Error: Config file '{args.config}' not found.") # Logger not available yet
         return
 
-    # 在调用任何其他模块之前，首先设置日志
     setup_logging(config)
 
-    args.func(args, config)
+    if args.mode == 'live':
+        load_dotenv()
+        api_key = os.getenv("ALPACA_API_KEY")
+        secret_key = os.getenv("ALPACA_SECRET_KEY")
+        if not api_key or not secret_key:
+            logger.error("API keys not found for live trading. Please set them in your .env file.")
+            return
+        config['alpaca']['api_key'] = api_key
+        config['alpaca']['secret_key'] = secret_key
+        
+        try:
+            asyncio.run(args.func(args, config))
+        except KeyboardInterrupt:
+            logger.info("Live trading stopped by user.")
+    else:
+        args.func(args, config)
 
 if __name__ == "__main__":
     main()
