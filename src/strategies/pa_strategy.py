@@ -1,3 +1,4 @@
+from loguru import logger
 from backtesting import Strategy
 from src.risk.position_sizer import calculate_position_size
 from src.analysis.price_action import analyze_price_action
@@ -26,9 +27,8 @@ class PriceActionStrategy(Strategy):
             current_analysis = self.analyzed_data.loc[current_date]
         except KeyError:
             return
-
         if not self.position:
-            if current_analysis['signal'] == 'buy_pullback':
+            if current_analysis['signal'] == 'buy_bullish_engulfing_pullback':
                 entry_price = self.data.Close[-1]
                 stop_loss_price = self.data.Low[-1]
 
