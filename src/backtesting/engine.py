@@ -1,6 +1,6 @@
 import pandas as pd
 from backtesting import Backtest
-from src.strategies.pa_strategy import PriceActionStrategy
+from src.backtesting.pa_strategy import PriceActionStrategy
 from loguru import logger
 
 def run_pa_backtest(
