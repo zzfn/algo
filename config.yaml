@@ -20,4 +20,4 @@ risk:
 # Logging Configuration
 logging:
   level: "INFO"  # 日志级别 (DEBUG, INFO, WARNING, ERROR)
-  file: "trading_log.log"
+  
