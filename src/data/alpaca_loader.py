@@ -44,20 +44,22 @@ def load_historical_data(
         timeframe=TIMEFRAME_MAP[timeframe_str],
         start=start_date,
         end=end_date,
-        feed="iex",  # Explicitly request free IEX data feed
+        feed="iex",
     )
 
     logger.debug(f"Requesting bars from Alpaca with params: {request_params}")
     bars = client.get_stock_bars(request_params)
 
-    dataframes = bars.df.reset_index()
-    dataframes['timestamp'] = pd.to_datetime(dataframes['timestamp'])
-    
+    # Alpaca apy-py returns a multi-index DataFrame with timezone-aware index
+    all_data = bars.df
+
     formatted_dfs = {}
     for symbol in symbols:
-        symbol_df = dataframes[dataframes['symbol'] == symbol].copy()
+        # Select data for the specific symbol
+        symbol_df = all_data.loc[symbol].copy()
         if not symbol_df.empty:
-            symbol_df.set_index('timestamp', inplace=True)
+            # The index is already a timezone-aware DatetimeIndex.
+            # We just need to ensure the column names are what we expect.
             symbol_df.rename(columns={
                 'open': 'open',
                 'high': 'high',
