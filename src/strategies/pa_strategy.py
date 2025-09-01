@@ -1,39 +1,45 @@
 from backtesting import Strategy
 from src.risk.position_sizer import calculate_position_size
+from src.analysis.price_action import analyze_price_action
 
 class PriceActionStrategy(Strategy):
-    """
-    一个集成了风险管理的简单动量策略。
-    - 逻辑1: 如果收盘价上涨且当前没有持仓，则根据风险比例计算仓位并买入。
-    - 逻辑2: 如果收盘价下跌且当前有持仓，则卖出平仓。
-    """
-    # --- 可配置的策略参数 ---
-    risk_per_trade = 0.02  # 默认为2%的风险
+    risk_per_trade = 0.02
 
     def init(self):
-        pass
+        """
+        在回测开始时，准备好所有分析数据。
+        这里是适配层：将 backtesting.py 的大写列名数据转换为我们内部的小写标准。
+        """
+        # 1. 从 backtesting.py 获取数据 (大写列名)
+        uppercase_df = self.data.df
+
+        # 2. 创建副本并转换为我们内部的小写标准
+        lowercase_df = uppercase_df.copy()
+        lowercase_df.columns = [col.lower() for col in uppercase_df.columns]
+
+        # 3. 使用我们标准化的数据调用分析函数
+        self.analyzed_data = analyze_price_action(lowercase_df)
 
     def next(self):
-        # 如果当前没有持仓，则寻找买入机会
-        if not self.position:
-            if self.data.Close[-1] > self.data.Close[-2]:
-                
-                # --- 集成风险管理 ---
-                # 1. 定义入场和止损价格
-                entry_price = self.data.Close[-1]
-                stop_loss_price = self.data.Low[-1] # 以信号K线的最低点为止损
+        current_date = self.data.index[-1]
+        try:
+            current_analysis = self.analyzed_data.loc[current_date]
+        except KeyError:
+            return
 
-                # 2. 调用函数计算仓位大小
+        if not self.position:
+            if current_analysis['signal'] == 'buy_pullback':
+                entry_price = self.data.Close[-1]
+                stop_loss_price = self.data.Low[-1]
+
                 size = calculate_position_size(
                     entry_price=entry_price,
                     stop_loss_price=stop_loss_price,
                     risk_per_trade=self.risk_per_trade
                 )
-
-                # 3. 如果计算出的仓位有效，则下单
                 if size > 0:
                     self.buy(size=size, sl=stop_loss_price)
         
-        # 如果当前有持仓，则根据条件寻找卖出机会
-        elif self.data.Close[-1] < self.data.Close[-2]:
-            self.position.close()
+        elif self.position.is_long:
+            if self.data.Close[-1] < current_analysis['ema_20']:
+                self.position.close()

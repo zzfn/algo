@@ -1,47 +1,46 @@
-from typing import List, Optional
 import pandas as pd
+import talib
+from loguru import logger
 
-# 从我们定义的核心类型中导入Signal和TakeProfitTarget
-from src.core.types import Signal, TakeProfitTarget
-
-def analyze_data_and_generate_signals(df: pd.DataFrame, symbol: str) -> List[Signal]:
+def analyze_price_action(df: pd.DataFrame) -> pd.DataFrame:
     """
-    一个最简单的分析函数，用于生成交易信号。
-    逻辑：如果当天的收盘价 > 前一天的收盘价，则产生一个买入信号。
+    价格行为分析主函数。
+    为输入的DataFrame添加分析列。
 
     Args:
-        df: 包含OHLCV数据的DataFrame。
-        symbol: 正在分析的交易品种。
+        df: 原始的OHLCV DataFrame，列名需为小写的 open, high, low, close。
 
     Returns:
-        一个包含所有产生信号的列表。如果没有信号，则返回空列表。
+        一个添加了 'ema_20', 'market_state', 'signal' 列的DataFrame。
     """
-    signals = []
-    # 使用.iloc来安全地访问前一行
-    for i in range(1, len(df)):
-        previous_bar = df.iloc[i-1]
-        current_bar = df.iloc[i]
+    logger.info("Starting price action analysis using TA-Lib...")
+    
+    analysis_df = df.copy()
 
-        if current_bar['close'] > previous_bar['close']:
-            # 创建一个简单的止盈目标
-            tp_target = TakeProfitTarget(
-                price=current_bar['close'] * 1.05, # 止盈5%
-                portion=1.0 # 全部平仓
-            )
+    # 1. 计算EMA (使用小写 'close')
+    logger.debug("Calculating EMA(20)...")
+    analysis_df['ema_20'] = talib.EMA(analysis_df['close'], timeperiod=20)
 
-            # 创建信号对象
-            signal = Signal(
-                symbol=symbol,
-                timestamp=current_bar.name, # .name 属性是DataFrame的索引值
-                action="BUY",
-                signal_type="simple_close_higher",
-                entry_price=current_bar['close'],
-                stop_loss=current_bar['low'],
-                take_profit_targets=[tp_target],
-                reason=f"Close {current_bar['close']:.2f} > Previous Close {previous_bar['close']:.2f}"
-            )
-            signals.append(signal)
-            
-    return signals
+    # 2. 判断市场状态 (使用小写 'close')
+    logger.debug("Determining market state...")
+    n_bars_for_trend = 10
+    above_ema = (analysis_df['close'] > analysis_df['ema_20']).astype(int).rolling(window=n_bars_for_trend).sum() == n_bars_for_trend
+    below_ema = (analysis_df['close'] < analysis_df['ema_20']).astype(int).rolling(window=n_bars_for_trend).sum() == n_bars_for_trend
+    
+    analysis_df['market_state'] = 'range'
+    analysis_df.loc[above_ema, 'market_state'] = 'uptrend'
+    analysis_df.loc[below_ema, 'market_state'] = 'downtrend'
 
+    # 3. 寻找交易信号 (使用小写 'low', 'close', 'open')
+    logger.debug("Finding pullback signals...")
+    analysis_df['signal'] = None
 
+    buy_conditions = (
+        (analysis_df['market_state'] == 'uptrend') &
+        (analysis_df['low'] <= analysis_df['ema_20']) &
+        (analysis_df['close'] > analysis_df['open'])
+    )
+    analysis_df.loc[buy_conditions, 'signal'] = 'buy_pullback'
+    
+    logger.success("Price action analysis complete.")
+    return analysis_df
