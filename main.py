@@ -1,62 +1,58 @@
 import argparse
 import yaml
-import arrow  # 使用 arrow 库处理时间
+import arrow
 from dotenv import load_dotenv
+from loguru import logger
 
-# 假设的模块导入，如果IDE报错请暂时忽略
+# 核心模块导入
+from src.utils.logger_setup import setup_logging
 from src.data.alpaca_loader import load_historical_data
-from src.core.types import Signal, Order, Confirmation
+from src.backtesting.engine import run_pa_backtest
 
 def run_live(args, config):
     """
     主函数：执行实盘交易
     """
-    # 实盘模式下，symbols 固定从配置文件读取
+    logger.info("--- Starting Live Trading Mode ---")
     symbols = config.get('trading', {}).get('symbols', [])
     if not symbols:
-        print("Error: No symbols to trade. Please specify 'symbols' in your config file.")
+        logger.error("No symbols to trade. Please specify 'symbols' in your config file.")
         return
 
-    print("--- Starting Live Trading Mode ---")
-    print(f"Using config file: {args.config}")
-    print(f"Trading symbols from config: {symbols}")
+    logger.info(f"Using config file: {args.config}")
+    logger.info(f"Trading symbols from config: {symbols}")
     
-    # TODO: 在这里添加实盘交易的初始化和主循环逻辑
-    print("\nLive trading logic not yet implemented.")
+    logger.warning("Live trading logic not yet implemented.")
 
 def run_backtest(args, config):
     """
     主函数：执行回测
     """
-    # 回测模式下，优先使用命令行传入的symbols，否则从配置读取
+    logger.info("--- Starting Backtest Mode ---")
     if args.symbols:
         symbols = args.symbols
     else:
         symbols = config.get('trading', {}).get('symbols', [])
     
     if not symbols:
-        print("Error: No symbols to backtest. Please specify in config file or via --symbols.")
+        logger.error("No symbols to backtest. Please specify in config file or via --symbols.")
         return
 
-    print("--- Starting Backtest Mode ---")
-    print(f"Using config file: {args.config}")
-    print(f"Backtesting symbols: {symbols}")
-    print(f"Start date: {args.start_date}")
-    print(f"End date: {args.end_date}")
+    logger.info(f"Using config file: {args.config}")
+    logger.info(f"Backtesting symbols: {symbols}")
+    logger.info(f"Start date: {args.start_date}")
+    logger.info(f"End date: {args.end_date}")
 
     try:
-        # 使用 arrow 将字符串日期转换为时区感知的datetime对象
-        tz = "America/New_York"  # A common timezone for US stocks
+        tz = "America/New_York"
         start_date = arrow.get(args.start_date, "YYYY-MM-DD", tzinfo=tz).datetime
         end_date = arrow.get(args.end_date, "YYYY-MM-DD", tzinfo=tz).datetime
         timeframe = config.get('trading', {}).get('timeframe', '1Day')
 
-        print(f"\nLoading data for {symbols} from {start_date.date()} to {end_date.date()}...")
+        logger.info(f"Loading data for {symbols} from {start_date.date()} to {end_date.date()}...")
         
-        # 加载环境变量，确保API密钥可用
         load_dotenv()
 
-        # 调用数据加载模块
         all_data = load_historical_data(
             symbols=symbols,
             start_date=start_date,
@@ -65,20 +61,27 @@ def run_backtest(args, config):
         )
 
         if not all_data:
-            print("No data loaded. Exiting.")
+            logger.warning("No data loaded. Exiting.")
             return
 
-        print("Data loaded successfully for symbols:", list(all_data.keys()))
-        sample_symbol = list(all_data.keys())[0]
-        print(f"\n--- Sample data for {sample_symbol} ---")
-        print(all_data[sample_symbol].head(3))
+        logger.success(f"Data loaded successfully for symbols: {list(all_data.keys())}")
+        
+        for symbol, df in all_data.items():
+            logger.info(f"--- Preparing data for {symbol} ---")
+            
+            data_for_bt = df.copy()
+            data_for_bt.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            
+            logger.info(f"Running backtest for {symbol}...")
+            initial_capital = config.get('backtesting', {}).get('initial_capital', 100000.0)
+            
+            run_pa_backtest(
+                data=data_for_bt,
+                initial_capital=initial_capital
+            )
 
-        # TODO: 在这里添加回测引擎的调用逻辑
-        print("\nBacktesting engine logic not yet implemented.")
-
-    except (ValueError, Exception) as e:
-        print(f"\nAn error occurred during backtest preparation: {e}")
-
+    except Exception:
+        logger.exception("An error occurred during backtest preparation:")
 
 def main():
     """
@@ -97,11 +100,9 @@ def main():
 
     subparsers = parser.add_subparsers(dest='mode', required=True, help='Execution mode')
 
-    # --- 实盘模式子命令 ---
     live_parser = subparsers.add_parser('live', help='Run in live mode (uses symbols from config)')
     live_parser.set_defaults(func=run_live)
 
-    # --- 回测模式子命令 ---
     backtest_parser = subparsers.add_parser('backtest', help='Run in backtesting mode')
     backtest_parser.add_argument(
         '--start-date',
@@ -126,8 +127,11 @@ def main():
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
     except FileNotFoundError:
-        print(f"Error: Config file '{args.config}' not found.")
+        print(f"Error: Config file '{args.config}' not found.") # Logger not available yet
         return
+
+    # 在调用任何其他模块之前，首先设置日志
+    setup_logging(config)
 
     args.func(args, config)
 

@@ -1,0 +1,50 @@
+2025-09-01T17:18:54.677441+0800 INFO Loguru logging system initialized.
+2025-09-01T17:18:54.678891+0800 INFO --- Starting Backtest Mode ---
+2025-09-01T17:18:54.679592+0800 INFO Using config file: config.yaml
+2025-09-01T17:18:54.679926+0800 INFO Backtesting symbols: ['SPY']
+2025-09-01T17:18:54.680050+0800 INFO Start date: 2023-01-01
+2025-09-01T17:18:54.680164+0800 INFO End date: 2023-12-31
+2025-09-01T17:18:54.682139+0800 INFO Loading data for ['SPY'] from 2023-01-01 to 2023-12-31...
+2025-09-01T17:18:54.682943+0800 INFO Attempting to load data for symbols: ['SPY']
+2025-09-01T17:18:55.752500+0800 SUCCESS Successfully formatted data for symbols: ['SPY']
+2025-09-01T17:18:55.754200+0800 SUCCESS Data loaded successfully for symbols: ['SPY']
+2025-09-01T17:18:55.754333+0800 INFO --- Preparing data for SPY ---
+2025-09-01T17:18:55.754546+0800 INFO Running backtest for SPY...
+2025-09-01T17:18:55.754667+0800 INFO --- Running Backtest with backtesting.py ---
+2025-09-01T17:18:55.790271+0800 INFO 
+--- Backtest Results ---
+Start                                             2023-01-03 05:00:00+00:00
+End                                               2023-12-29 05:00:00+00:00
+Duration                                                  360 days 00:00:00
+Exposure Time [%]                                                      78.8
+Equity Final [$]                                               90917.139324
+Equity Peak [$]                                               101068.801676
+Commissions [$]                                                22880.098156
+Return [%]                                                        -9.082861
+Buy & Hold Return [%]                                             24.812247
+Return (Ann.) [%]                                                 -9.152093
+Volatility (Ann.) [%]                                              8.541561
+CAGR [%]                                                          -6.448225
+Sharpe Ratio                                                      -1.071478
+Sortino Ratio                                                     -1.296882
+Calmar Ratio                                                       -0.59341
+Alpha [%]                                                        -20.952972
+Beta                                                               0.478397
+Max. Drawdown [%]                                                -15.422872
+Avg. Drawdown [%]                                                  -4.80139
+Max. Drawdown Duration                                    330 days 00:00:00
+Avg. Drawdown Duration                                     90 days 00:00:00
+# Trades                                                                 62
+Win Rate [%]                                                      33.870968
+Best Trade [%]                                                     4.348042
+Worst Trade [%]                                                   -2.584545
+Avg. Trade [%]                                                    -0.155839
+Max. Trade Duration                                        11 days 00:00:00
+Avg. Trade Duration                                         4 days 00:00:00
+Profit Factor                                                      0.709709
+Expectancy [%]                                                    -0.149221
+SQN                                                               -1.110832
+Kelly Criterion                                                   -0.152942
+_strategy                                               PriceActionStrategy
+_equity_curve                                               Equity  Draw...
+_trades                       Size  EntryBar  ExitBar  EntryPrice  ExitP...
