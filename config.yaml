@@ -1,23 +1,27 @@
 # Alpaca API Configuration
-# 建议使用环境变量加载，例如 ALPACA_API_KEY
 alpaca:
-  # 通过环境变量 ALPACA_API_KEY 和 ALPACA_SECRET_KEY 加载
   api_key: null
   secret_key: null
-  paper: true  # true for paper trading, false for live trading
+  paper: true
 
-# Trading Parameters
-trading:
-  symbols: ["SPY", "QQQ"]  # 要交易的品种列表
-  timeframe: "1Day"      # K线周期 (e.g., 1Min, 5Min, 1Day)
-  max_active_trades: 5   # 最多同时持有的仓位数
+# Data Parameters
+data:
+  symbols: ["SPY"]
+  timeframe: "1Day"
+  start_date: "2024-01-01" # Default start date
+  end_date: "2024-12-31"   # Default end date
 
-# Risk Management
-risk:
-  risk_per_trade: 0.02  # 每笔交易的风险敞口（占总资金的百分比），例如 0.02 代表 2%
-  default_stop_loss_atr_multiplier: 2.0 # 默认止损距离（ATR的倍数）
+# Backtest Configuration
+backtest:
+  cash: 10000
+  commission: 0.002
+
+# Strategy Configuration
+strategy:
+  params:
+    risk_per_trade: 0.02
+    n_bars_for_trend: 10
 
 # Logging Configuration
 logging:
-  level: "DEBUG"  # 日志级别 (DEBUG, INFO, WARNING, ERROR)
-  
+  level: "INFO"

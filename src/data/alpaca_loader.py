@@ -44,6 +44,7 @@ def load_historical_data(
         timeframe=TIMEFRAME_MAP[timeframe_str],
         start=start_date,
         end=end_date,
+        feed="iex",  # Explicitly request free IEX data feed
     )
 
     logger.debug(f"Requesting bars from Alpaca with params: {request_params}")

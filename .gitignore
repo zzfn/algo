@@ -1,5 +1,6 @@
 /.idea/
 /.venv/
-
+/backtest-result/
+/outputs/
 # Environment variables
 .env
