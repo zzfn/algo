@@ -54,6 +54,5 @@ def run_backtest(cfg: DictConfig) -> None:
     end_date_str = cfg.data.end_date
     filename = f"{output_dir}/{symbol}_{start_date_str}_to_{end_date_str}_{timestamp}.html"
 
-    bt.plot(filename=filename)
-    
+    bt.plot(plot_volume=True, plot_drawdown=False, open_browser=False, filename=filename)
     print(f"Backtest plot saved to: {filename}")
