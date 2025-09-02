@@ -1,6 +1,7 @@
 from loguru import logger
+from src.core.types import Signal
 
-def calculate_position_size(
+def _calculate_target_position_size_from_risk(
     entry_price: float,
     stop_loss_price: float,
     risk_per_trade: float
@@ -45,6 +46,50 @@ def calculate_position_size(
     )
     
     return final_size
+
+
+def calculate_position_size(
+    signal: Signal,
+    current_position_size: float,
+    current_profit_loss: float, # This parameter is not used in the current logic, but kept as per user's request
+    risk_per_trade: float
+) -> float:
+    """
+    根据交易信号、当前持仓和风险参数计算目标仓位大小。
+
+    Args:
+        signal: 交易信号对象。
+        current_position_size: 当前持有的仓位大小。
+        current_profit_loss: 当前仓位的盈亏。
+        risk_per_trade: 每笔交易的风险比例。
+
+    Returns:
+        新的目标仓位大小。
+    """
+    if signal is None:
+        logger.debug("No signal received, returning 0.0 (no action).")
+        return 0.0
+
+    if signal.action == "BUY":
+        # Calculate target position size based on the signal's entry and stop loss
+        target_size = _calculate_target_position_size_from_risk(
+            entry_price=signal.entry_price,
+            stop_loss_price=signal.stop_loss,
+            risk_per_trade=risk_per_trade
+        )
+        logger.debug(f"BUY signal received. Target size: {target_size:.4f}")
+        # If target_size is greater than current_position_size, return the difference to buy
+        if target_size > current_position_size:
+            return target_size - current_position_size
+        else:
+            return 0.0 # No action needed (already at or above target)
+    elif signal.action == "SELL":
+        # For a SELL signal, return a negative value to indicate selling the current position
+        logger.debug(f"SELL signal received. Returning -{current_position_size:.4f} to close position.")
+        return -current_position_size
+    else:
+        logger.warning(f"Unknown signal action: {signal.action}. Returning 0.0 (no action).")
+        return 0.0
 
 
 if __name__ == '__main__':

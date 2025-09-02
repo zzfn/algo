@@ -54,19 +54,14 @@ class BacktestAdapter(Strategy):
 
         # --- 根据 Signal 对象执行交易 ---
         if signal:
-            if signal.action == "BUY":
-                calculated_size = calculate_position_size(
-                    entry_price=signal.entry_price,
-                    stop_loss_price=signal.stop_loss,
-                    risk_per_trade=self.risk_per_trade
-                )
+            shares_to_trade = calculate_position_size(
+                signal=signal,
+                current_position_size=current_position_size,
+                current_profit_loss=self.position.pl if self.position else 0.0, # Use self.position.pl for current P&L
+                risk_per_trade=self.risk_per_trade
+            )
 
-                if calculated_size > 0:
-                    # If target size is greater than current position, buy the difference
-                    if calculated_size > current_position_size:
-                        shares_to_trade = calculated_size - current_position_size
-                        self.buy(size=shares_to_trade, sl=signal.stop_loss)
-            elif signal.action == "SELL":
-                # For a SELL signal, we assume it's to close an existing position
-                if current_position_size > 0:
-                    self.sell(size=current_position_size) # Sell all current long position
+            if shares_to_trade > 0:
+                self.buy(size=shares_to_trade)
+            elif shares_to_trade < 0:
+                self.sell(size=abs(shares_to_trade)) # Sell the absolute amount

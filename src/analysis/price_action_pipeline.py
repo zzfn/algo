@@ -107,66 +107,46 @@ class PriceActionPipeline:
             entry_price = df['Close'].iloc[-1]
             sl_for_calc = df['Low'].iloc[-1]
             
-            calculated_size = calculate_position_size(
-                entry_price=entry_price,
-                stop_loss_price=sl_for_calc,
-                risk_per_trade=risk_per_trade
-            )
-            
-            if calculated_size > 0: 
-                # 如果目标数量大于当前持仓，则计算差额进行买入
-                if calculated_size > current_position_size:
-                    return Signal(
-                        symbol=self.symbol,
-                        timestamp=df.index[-1].to_pydatetime(), # Convert pandas Timestamp to datetime
-                        action="BUY",
-                        signal_type="Bullish Engulfing",
-                        entry_price=entry_price,
-                        stop_loss=sl_for_calc,
-                        reason="Uptrend and Bullish Engulfing"
-                    )
+            # If target quantity is greater than current position, calculate the difference to buy
+            # The actual position sizing will be handled by the external calculate_position_size
+            if True: # Always generate signal if conditions met, let external function decide size
+                return Signal(
+                    symbol=self.symbol,
+                    timestamp=df.index[-1].to_pydatetime(), # Convert pandas Timestamp to datetime
+                    action="BUY",
+                    signal_type="Bullish Engulfing",
+                    entry_price=entry_price,
+                    stop_loss=sl_for_calc,
+                    reason="Uptrend and Bullish Engulfing"
+                )
         elif market_state == 'uptrend' and is_bullish_trend_bar:
             entry_price = df['Close'].iloc[-1]
             sl_for_calc = df['Low'].iloc[-1] # Use low of the trend bar as SL
 
-            calculated_size = calculate_position_size(
-                entry_price=entry_price,
-                stop_loss_price=sl_for_calc,
-                risk_per_trade=risk_per_trade
-            )
-
-            if calculated_size > 0:
-                if calculated_size > current_position_size:
-                    return Signal(
-                        symbol=self.symbol,
-                        timestamp=df.index[-1].to_pydatetime(),
-                        action="BUY",
-                        signal_type="Bullish Trend Bar",
-                        entry_price=entry_price,
-                        stop_loss=sl_for_calc,
-                        reason="Uptrend and Bullish Trend Bar"
-                    )
+            if True: # Always generate signal if conditions met
+                return Signal(
+                    symbol=self.symbol,
+                    timestamp=df.index[-1].to_pydatetime(),
+                    action="BUY",
+                    signal_type="Bullish Trend Bar",
+                    entry_price=entry_price,
+                    stop_loss=sl_for_calc,
+                    reason="Uptrend and Bullish Trend Bar"
+                )
         elif market_state == 'uptrend' and is_bullish_pin_bar:
             entry_price = df['Close'].iloc[-1]
             sl_for_calc = df['Low'].iloc[-1] # Use low of the pin bar as SL
 
-            calculated_size = calculate_position_size(
-                entry_price=entry_price,
-                stop_loss_price=sl_for_calc,
-                risk_per_trade=risk_per_trade
-            )
-
-            if calculated_size > 0:
-                if calculated_size > current_position_size:
-                    return Signal(
-                        symbol=self.symbol,
-                        timestamp=df.index[-1].to_pydatetime(),
-                        action="BUY",
-                        signal_type="Bullish Pin Bar",
-                        entry_price=entry_price,
-                        stop_loss=sl_for_calc,
-                        reason="Uptrend and Bullish Pin Bar"
-                    )
+            if True: # Always generate signal if conditions met
+                return Signal(
+                    symbol=self.symbol,
+                    timestamp=df.index[-1].to_pydatetime(),
+                    action="BUY",
+                    signal_type="Bullish Pin Bar",
+                    entry_price=entry_price,
+                    stop_loss=sl_for_calc,
+                    reason="Uptrend and Bullish Pin Bar"
+                )
 
         # --- 卖出/平仓逻辑 ---
         elif current_position_size > 0: # 只有当前持有多头仓位才考虑卖出
