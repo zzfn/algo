@@ -51,7 +51,6 @@ def _calculate_target_position_size_from_risk(
 def calculate_position_size(
     signal: Signal,
     current_position_size: float,
-    current_profit_loss: float, # This parameter is not used in the current logic, but kept as per user's request
     risk_per_trade: float
 ) -> float:
     """
@@ -60,7 +59,6 @@ def calculate_position_size(
     Args:
         signal: 交易信号对象。
         current_position_size: 当前持有的仓位大小。
-        current_profit_loss: 当前仓位的盈亏。
         risk_per_trade: 每笔交易的风险比例。
 
     Returns:

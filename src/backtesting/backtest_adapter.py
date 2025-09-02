@@ -57,7 +57,6 @@ class BacktestAdapter(Strategy):
             shares_to_trade = calculate_position_size(
                 signal=signal,
                 current_position_size=current_position_size,
-                current_profit_loss=self.position.pl if self.position else 0.0, # Use self.position.pl for current P&L
                 risk_per_trade=self.risk_per_trade
             )
 
