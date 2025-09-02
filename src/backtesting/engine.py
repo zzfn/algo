@@ -1,4 +1,5 @@
 import os
+import warnings
 from datetime import datetime
 
 from backtesting import Backtest
@@ -42,6 +43,7 @@ def run_backtest(cfg: DictConfig) -> None:
     )
 
     strategy_params = OmegaConf.to_container(cfg.strategy.params, resolve=True)
+    strategy_params['symbol'] = symbol
     stats = bt.run(**strategy_params)
 
     print(stats)
@@ -54,5 +56,9 @@ def run_backtest(cfg: DictConfig) -> None:
     end_date_str = cfg.data.end_date
     filename = f"{output_dir}/{symbol}_{start_date_str}_to_{end_date_str}_{timestamp}.html"
 
-    bt.plot(plot_volume=True, plot_drawdown=False, open_browser=False, filename=filename)
+    # Suppress the known, benign warning about timezones from Bokeh
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, message=".*no explicit representation of timezones.*")
+        bt.plot(filename=filename,open_browser=False)
+    
     print(f"Backtest plot saved to: {filename}")

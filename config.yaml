@@ -20,7 +20,8 @@ backtest:
 strategy:
   params:
     risk_per_trade: 0.02
-    n_bars_for_trend: 10
+    n_bars_for_trend: 10    # Used for bullish engulfing pattern check
+    ema_slope_lookback: 5   # Used for EMA slope trend check
 
 # Logging Configuration
 logging:
