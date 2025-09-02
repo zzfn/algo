@@ -2,6 +2,8 @@ import talib
 from backtesting import Strategy
 
 from src.analysis.price_action_pipeline import PriceActionPipeline
+from src.core.types import Signal
+from src.risk.position_sizer import calculate_position_size
 
 
 class BacktestAdapter(Strategy):
@@ -9,9 +11,9 @@ class BacktestAdapter(Strategy):
     适配器，作为策略 Pipeline 和 backtesting.py 框架的桥梁。
     """
     # 为满足 backtesting.py 框架要求，在此处声明参数。
-    risk_per_trade = 0.02
-    ema_slope_lookback = 5 
     symbol = "" 
+    risk_per_trade = 0.02 
+    ema_slope_lookback = 5 
 
     def init(self):
         """
@@ -22,7 +24,7 @@ class BacktestAdapter(Strategy):
         self.pipeline = PriceActionPipeline(
             symbol=self.symbol,
             # n_bars_for_trend=self.n_bars_for_trend, # Removed
-            ema_slope_lookback=self.ema_slope_lookback
+            
         )
 
         # Initialize pipeline with historical data for warm-up (all data except the last bar)
@@ -44,15 +46,27 @@ class BacktestAdapter(Strategy):
         new_bar = self.data.df.iloc[-1]
 
         # 调用 Pipeline 获取要交易的数量和止损价
-        shares_to_trade, sl_price = self.pipeline.process_bar(
+        signal = self.pipeline.process_bar(
             new_bar=new_bar,
             current_position_size=current_position_size,
             risk_per_trade=self.risk_per_trade 
         )
 
-        # --- 根据要交易的数量执行交易 (简洁版) ---
-        if shares_to_trade > 0: # 需要买入 (开仓或加仓)
-            self.buy(size=shares_to_trade, sl=sl_price)
-        elif shares_to_trade < 0: # 需要卖出 (平仓或减仓)
-            self.sell(size=abs(shares_to_trade), sl=sl_price) # sl for short position (not used in this strategy yet)
-        # else: shares_to_trade == 0, 不操作
+        # --- 根据 Signal 对象执行交易 ---
+        if signal:
+            if signal.action == "BUY":
+                calculated_size = calculate_position_size(
+                    entry_price=signal.entry_price,
+                    stop_loss_price=signal.stop_loss,
+                    risk_per_trade=self.risk_per_trade
+                )
+
+                if calculated_size > 0:
+                    # If target size is greater than current position, buy the difference
+                    if calculated_size > current_position_size:
+                        shares_to_trade = calculated_size - current_position_size
+                        self.buy(size=shares_to_trade, sl=signal.stop_loss)
+            elif signal.action == "SELL":
+                # For a SELL signal, we assume it's to close an existing position
+                if current_position_size > 0:
+                    self.sell(size=current_position_size) # Sell all current long position

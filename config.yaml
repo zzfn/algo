@@ -20,7 +20,7 @@ backtest:
 strategy:
   params:
     risk_per_trade: 0.02
-    ema_slope_lookback: 5   # Used for EMA slope trend check
+    
 
 # Logging Configuration
 logging:

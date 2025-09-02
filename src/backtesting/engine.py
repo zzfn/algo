@@ -44,6 +44,7 @@ def run_backtest(cfg: DictConfig) -> None:
 
     strategy_params = OmegaConf.to_container(cfg.strategy.params, resolve=True)
     strategy_params['symbol'] = symbol
+
     stats = bt.run(**strategy_params)
 
     print(stats)
