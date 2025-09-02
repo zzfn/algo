@@ -6,18 +6,17 @@ class PriceActionPipeline:
     一个事件驱动、有状态的策略核心。
     它接收单根K线，维护自己的历史数据，并返回要交易的数量。
     """
-    def __init__(self, symbol: str, n_bars_for_trend: int, ema_slope_lookback: int):
+    def __init__(self, symbol: str, ema_slope_lookback: int):
         self.symbol = symbol
-        self.n_bars_for_trend = n_bars_for_trend
         self.ema_slope_lookback = ema_slope_lookback
-        self.data_buffer = pd.DataFrame() # Internal data store for stateful processing
+        self.data_history = pd.DataFrame() # Internal data store for stateful processing
 
     def initialize_data(self, historical_data: pd.DataFrame):
         """
         Initializes the pipeline with historical data for warm-up.
         This method is called once at the beginning of the backtest.
         """
-        self.data_buffer = historical_data.copy()
+        self.data_history = historical_data.copy()
 
     def process_bar(self, 
                     new_bar: pd.Series, 
@@ -33,10 +32,10 @@ class PriceActionPipeline:
         else:
             new_bar_df = new_bar 
 
-        self.data_buffer = pd.concat([self.data_buffer, new_bar_df])
+        self.data_history = pd.concat([self.data_history, new_bar_df])
 
-        # Now, all calculations are performed on self.data_buffer
-        df = self.data_buffer 
+        # Now, all calculations are performed on self.data_history
+        df = self.data_history 
 
         # Ensure enough data for calculations
         if len(df) < self.ema_slope_lookback + 2:

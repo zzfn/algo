@@ -10,7 +10,6 @@ class BacktestAdapter(Strategy):
     """
     # 为满足 backtesting.py 框架要求，在此处声明参数。
     risk_per_trade = 0.02
-    n_bars_for_trend = 10
     ema_slope_lookback = 5 
     symbol = "" 
 
@@ -22,7 +21,7 @@ class BacktestAdapter(Strategy):
         """
         self.pipeline = PriceActionPipeline(
             symbol=self.symbol,
-            n_bars_for_trend=self.n_bars_for_trend,
+            # n_bars_for_trend=self.n_bars_for_trend, # Removed
             ema_slope_lookback=self.ema_slope_lookback
         )
 
@@ -51,8 +50,9 @@ class BacktestAdapter(Strategy):
             risk_per_trade=self.risk_per_trade 
         )
 
-
-        if shares_to_trade > 0:
+        # --- 根据要交易的数量执行交易 (简洁版) ---
+        if shares_to_trade > 0: # 需要买入 (开仓或加仓)
             self.buy(size=shares_to_trade, sl=sl_price)
-        elif shares_to_trade < 0:
+        elif shares_to_trade < 0: # 需要卖出 (平仓或减仓)
             self.sell(size=abs(shares_to_trade), sl=sl_price) # sl for short position (not used in this strategy yet)
+        # else: shares_to_trade == 0, 不操作
