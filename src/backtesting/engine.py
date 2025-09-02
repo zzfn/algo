@@ -55,10 +55,4 @@ def run_backtest(cfg: DictConfig) -> None:
     start_date_str = cfg.data.start_date
     end_date_str = cfg.data.end_date
     filename = f"{output_dir}/{symbol}_{start_date_str}_to_{end_date_str}_{timestamp}.html"
-
-    # Suppress the known, benign warning about timezones from Bokeh
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UserWarning, message=".*no explicit representation of timezones.*")
-        bt.plot(filename=filename,open_browser=False)
-    
     print(f"Backtest plot saved to: {filename}")
