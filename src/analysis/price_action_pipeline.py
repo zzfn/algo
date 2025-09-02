@@ -44,11 +44,18 @@ class PriceActionPipeline:
 
         df['ema_20'] = df['Close'].ewm(span=20, adjust=False).mean()
 
+        # Calculate EMA20 slope over a short period (e.g., 3 bars)
+        # Ensure there are enough data points for slope calculation
+        if len(df) >= 3:
+            ema_20_slope = (df['ema_20'].iloc[-1] - df['ema_20'].iloc[-3]) / 2
+        else:
+            ema_20_slope = 0 # Default to no slope if not enough data
+
         # --- 2. 判断市场状态 (基于EMA和价格关系) ---
         market_state = 'range'
-        if df['Close'].iloc[-1] > df['ema_20'].iloc[-1]:
+        if df['Close'].iloc[-1] > df['ema_20'].iloc[-1] and ema_20_slope > 0:
             market_state = 'uptrend'
-        elif df['Close'].iloc[-1] < df['ema_20'].iloc[-1]:
+        elif df['Close'].iloc[-1] < df['ema_20'].iloc[-1] and ema_20_slope < 0:
             market_state = 'downtrend'
 
         df['market_state'] = market_state # Store market state in DataFrame

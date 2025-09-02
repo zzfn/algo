@@ -35,6 +35,7 @@ class BacktestAdapter(Strategy):
 
         # Define indicator for plotting purposes only
         self.ema20_plot = self.I(talib.EMA, self.data.Close, timeperiod=20, name="EMA20")
+        self.current_stop_loss_price = None # Initialize stop loss price
 
     def next(self):
         """
@@ -62,5 +63,13 @@ class BacktestAdapter(Strategy):
 
             if shares_to_trade > 0:
                 self.buy(size=shares_to_trade)
+                self.current_stop_loss_price = signal.stop_loss # Store the stop loss price from the signal
             elif shares_to_trade < 0:
                 self.sell(size=abs(shares_to_trade)) # Sell the absolute amount
+                self.current_stop_loss_price = None # Reset stop loss after closing position
+
+        # --- Stop Loss Check ---
+        if self.position and self.current_stop_loss_price is not None:
+            if self.data.Close[-1] < self.current_stop_loss_price:
+                self.sell(size=self.position.size) # Close entire position on stop loss
+                self.current_stop_loss_price = None # Reset stop loss after closing position
