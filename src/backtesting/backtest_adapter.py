@@ -12,7 +12,7 @@ class BacktestAdapter(Strategy):
     risk_per_trade = 0.02
     n_bars_for_trend = 10
     ema_slope_lookback = 5 
-    symbol = "" # Add symbol parameter
+    symbol = "" 
 
     def init(self):
         """
@@ -20,17 +20,13 @@ class BacktestAdapter(Strategy):
         2. **仅为绘图目的**，定义一个指标，让 plotting 函数可以显示它。
            这个指标不参与任何交易决策。
         """
-        # Get symbol from self.data._symbol (provided by backtesting.py)
-        # symbol = self.data._symbol # Removed
-
         self.pipeline = PriceActionPipeline(
-            symbol=self.symbol, # Use self.symbol passed from engine
+            symbol=self.symbol,
             n_bars_for_trend=self.n_bars_for_trend,
             ema_slope_lookback=self.ema_slope_lookback
         )
 
         # Initialize pipeline with historical data for warm-up (all data except the last bar)
-        # The last bar will be processed by the first call to next()
         if len(self.data.df) > 1:
             self.pipeline.initialize_data(self.data.df.iloc[:-1])
         else:
@@ -48,15 +44,15 @@ class BacktestAdapter(Strategy):
         # 每次只取最新的K线传递给 Pipeline
         new_bar = self.data.df.iloc[-1]
 
-        # 调用 Pipeline 获取目标仓位和止损价
-        target_shares, sl_price = self.pipeline.process_bar(
+        # 调用 Pipeline 获取要交易的数量和止损价
+        shares_to_trade, sl_price = self.pipeline.process_bar(
             new_bar=new_bar,
             current_position_size=current_position_size,
             risk_per_trade=self.risk_per_trade 
         )
 
-        # --- 根据目标仓位执行交易 (手动调用 buy/sell/close) ---
-        if target_shares > 0 and current_position_size == 0: 
-            self.buy(size=target_shares, sl=sl_price)
-        elif target_shares == 0 and current_position_size > 0: 
-            self.position.close()
+
+        if shares_to_trade > 0:
+            self.buy(size=shares_to_trade, sl=sl_price)
+        elif shares_to_trade < 0:
+            self.sell(size=abs(shares_to_trade), sl=sl_price) # sl for short position (not used in this strategy yet)
