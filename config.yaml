@@ -7,9 +7,9 @@ alpaca:
 # Data Parameters
 data:
   symbols: ["SPY"]
-  timeframe: "1Day"
-  start_date: "2024-01-01" # Default start date
-  end_date: "2024-12-31"   # Default end date
+  timeframe: "1Min"
+  start_date: "2025-08-25" # Default start date
+  end_date: "2025-09-01"   # Default end date
 
 # Backtest Configuration
 backtest:

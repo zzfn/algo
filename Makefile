@@ -2,9 +2,9 @@
 
 # Default variables for backtesting. Can be overridden from the command line.
 # e.g., make backtest START_DATE=2023-01-01 END_DATE=2023-12-31 SYMBOLS="[SPY,QQQ]"
-START_DATE ?= $(shell date +%Y-01-01)
-END_DATE   ?= $(shell date +%Y-%m-%d)
-SYMBOLS    ?= "[SPY]" # Hydra expects a list-like string
+# START_DATE ?= $(shell date +%Y-01-01)
+# END_DATE   ?= $(shell date +%Y-%m-%d)
+# SYMBOLS    ?= "[SPY]" # Hydra expects a list-like string
 
 # Define .PHONY to avoid conflicts with files of the same name
 .PHONY: help install live backtest
@@ -26,4 +26,4 @@ live:
 
 backtest:
 	@echo "--- Running Backtest [Symbols: $(SYMBOLS), Period: $(START_DATE) to $(END_DATE)] ---"
-	uv run main.py data.start_date=$(START_DATE) data.end_date=$(END_DATE) data.symbols=$(SYMBOLS)
+	uv run main.py

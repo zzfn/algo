@@ -51,6 +51,8 @@ class PriceActionPipeline:
         elif df['Close'].iloc[-1] < df['ema_20'].iloc[-1]:
             market_state = 'downtrend'
 
+        df['market_state'] = market_state # Store market state in DataFrame
+
         
 
         # --- 3. 判断K线形态 ---
@@ -150,7 +152,18 @@ class PriceActionPipeline:
 
         # --- 卖出/平仓逻辑 ---
         elif current_position_size > 0: # 只有当前持有多头仓位才考虑卖出
-            if df['Close'].iloc[-1] < df['ema_20'].iloc[-1]:
+            # 市场状态从上涨转为下跌，且有持仓，则考虑平仓
+            if market_state == 'downtrend' and self.data_history['market_state'].iloc[-2] == 'uptrend':
+                return Signal(
+                    symbol=self.symbol,
+                    timestamp=df.index[-1].to_pydatetime(),
+                    action="SELL",
+                    signal_type="Trend Reversal (Uptrend to Downtrend)",
+                    entry_price=df['Close'].iloc[-1], # Exit price
+                    stop_loss=0.0, # Not applicable for exit signal
+                    reason="Market trend reversed from uptrend to downtrend"
+                )
+            elif df['Close'].iloc[-1] < df['ema_20'].iloc[-1]:
                 return Signal(
                     symbol=self.symbol,
                     timestamp=df.index[-1].to_pydatetime(),
