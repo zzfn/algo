@@ -42,7 +42,6 @@ class AlpacaConfig:
     secret_key: str = ""
 
     # 环境设置
-    paper: bool = True  # True为纸交易，False为实盘
     is_test: bool = False  # True为测试模式
 
     # 数据设置
@@ -149,6 +148,7 @@ class AlpacaDataStream:
         # 数据处理器在订阅时设置
 
     async def _on_trade_data(self, trade):
+        print(trade)
         """处理交易数据"""
         trade_data = TradeData(
             symbol=trade.symbol,
@@ -167,6 +167,7 @@ class AlpacaDataStream:
         await self._dispatch_event(event)
 
     async def _on_quote_data(self, quote):
+        print(quote)
         """处理报价数据"""
         quote_data = QuoteData(
             symbol=quote.symbol,
@@ -579,7 +580,6 @@ class StrategyInterface:
         config = AlpacaConfig(
             api_key=os.getenv("ALPACA_API_KEY", ""),
             secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
-            paper=True,  # 纸交易
             is_test=True,  # 启用测试模式
             data_feed=DataFeed.IEX
         )
