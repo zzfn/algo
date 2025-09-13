@@ -23,12 +23,17 @@ from collections import deque
 import threading
 import asyncio
 import time
-import logging
 import os
 from dotenv import load_dotenv
+from logbook import Logger, StreamHandler
+import sys
 
 # 加载环境变量
 load_dotenv()
+
+# 初始化日志 - 配置输出到控制台
+StreamHandler(sys.stdout, level='INFO').push_application()
+log = Logger('AlgoTrading')
 
 # ========================================
 # 1. 配置管理 (Configuration)
@@ -133,7 +138,7 @@ class AlpacaDataStream:
         # 数据处理器在订阅时设置
 
     async def _on_trade_data(self, trade):
-        print(trade)
+        log.info(f"[TRADE] 收到交易数据: {trade}")
         """处理交易数据 - 仅传递价格"""
         # 直接创建简单的价格事件
         event = DataEvent(
@@ -158,7 +163,7 @@ class AlpacaDataStream:
             vwap=float(bar.vwap) if bar.vwap else None,
             trade_count=int(bar.trade_count) if bar.trade_count else None
         )
-        print(bar_data)
+        log.info(f"[BAR] 收到K线数据: {bar_data}")
         event = DataEvent(
             event_type=DataEventType.BAR,
             symbol=bar.symbol,
@@ -177,7 +182,7 @@ class AlpacaDataStream:
                 else:
                     handler(event)
             except Exception as e:
-                logging.error(f"事件处理器错误: {e}")
+                log.error(f"[ERROR] 事件处理器错误: {e}")
 
     def register_handler(self, event_type: DataEventType, handler: Callable):
         """注册事件处理器"""
@@ -197,11 +202,11 @@ class AlpacaDataStream:
 
     def run(self):
         """启动数据流"""
-        print(f"启动Alpaca数据流，数据源: {self.config.data_feed}")
+        log.info(f"[STREAM] 启动Alpaca数据流，数据源: {self.config.data_feed}")
         try:
             self.stream.run()
         except Exception as e:
-            logging.error(f"数据流运行错误: {e}")
+            log.error(f"[ERROR] 数据流运行错误: {e}")
 
     def stop(self):
         """停止数据流"""
@@ -271,7 +276,7 @@ class AlpacaHistoricalData:
             return result
 
         except APIError as e:
-            logging.error(f"获取历史数据错误: {e}")
+            log.error(f"[ERROR] 获取历史数据错误: {e}")
             return {symbol: pd.DataFrame() for symbol in symbols}
 
 
@@ -401,7 +406,7 @@ class AlpacaDataManager:
             try:
                 callback(symbol, data_type)
             except Exception as e:
-                logging.error(f"策略回调错误: {e}")
+                log.error(f"[ERROR] 策略回调错误: {e}")
 
     def register_strategy_callback(self, callback: Callable):
         """注册策略回调"""
@@ -435,7 +440,7 @@ class AlpacaDataManager:
         self.stream_thread = threading.Thread(target=run_stream, daemon=True)
         self.stream_thread.start()
 
-        print(f"已启动实时数据流，监听股票: {self.symbols}")
+        log.info(f"[STREAM] 已启动实时数据流，监听股票: {self.symbols}")
 
     def stop_stream(self):
         """停止实时数据流"""
@@ -448,7 +453,7 @@ class AlpacaDataManager:
         if self.stream_thread:
             self.stream_thread.join(timeout=5)
 
-        print("已停止实时数据流")
+        log.info("[STREAM] 已停止实时数据流")
 
     # 数据访问接口
     def get_realtime_bars(self, symbol: str, count: int = 50) -> pd.DataFrame:
@@ -493,7 +498,7 @@ class StrategyInterface:
             bars_df = self.data_manager.get_realtime_bars(symbol, 50)
 
             if len(bars_df) >= 20:  # 有足够数据时分析
-                print(f"{symbol}: 新K线 @ {current_price}, 共{len(bars_df)}根K线")
+                log.info(f"[STRATEGY] {symbol}: 新K线 @ {current_price}, 共{len(bars_df)}根K线")
 
                 # 这里调用Al Brooks策略分析
                 self.analyze_price_action(symbol, bars_df, current_price)
@@ -505,10 +510,10 @@ class StrategyInterface:
 
     def start(self):
         """启动策略"""
-        print("加载历史数据...")
+        log.info("[STRATEGY] 加载历史数据...")
         self.historical_data = self.data_manager.load_historical_data(30)
 
-        print("启动实时数据流...")
+        log.info("[STRATEGY] 启动实时数据流...")
         self.data_manager.start_stream()
 
     def stop(self):
@@ -529,5 +534,5 @@ if __name__ == "__main__":
             time.sleep(1)
 
     except KeyboardInterrupt:
-        print("停止策略...")
+        log.info("[STRATEGY] 停止策略...")
         strategy.stop()
