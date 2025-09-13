@@ -43,6 +43,7 @@ class AlpacaConfig:
 
     # 环境设置
     paper: bool = True  # True为纸交易，False为实盘
+    is_test: bool = False  # True为测试模式
 
     # 数据设置
     data_feed: DataFeed = DataFeed.IEX  # iex, sip
@@ -131,11 +132,19 @@ class AlpacaDataStream:
 
     def _init_stream(self):
         """初始化数据流"""
-        self.stream = StockDataStream(
-            api_key=self.config.api_key,
-            secret_key=self.config.secret_key,
-            feed=self.config.data_feed
-        )
+        if self.config.is_test:
+            self.stream = StockDataStream(
+                api_key=self.config.api_key,
+                secret_key=self.config.secret_key,
+                feed=self.config.data_feed,
+                url_override="wss://stream.data.alpaca.markets/v2/test"
+            )
+        else:
+            self.stream = StockDataStream(
+                api_key=self.config.api_key,
+                secret_key=self.config.secret_key,
+                feed=self.config.data_feed
+            )
 
         # 数据处理器在订阅时设置
 
@@ -189,7 +198,7 @@ class AlpacaDataStream:
             vwap=float(bar.vwap) if bar.vwap else None,
             trade_count=int(bar.trade_count) if bar.trade_count else None
         )
-
+        print(bar_data)
         event = DataEvent(
             event_type=DataEventType.BAR,
             symbol=bar.symbol,
@@ -452,7 +461,8 @@ class AlpacaDataManager:
 
     def __init__(self, config: AlpacaConfig, symbols: List[str]):
         self.config = config
-        self.symbols = symbols
+        # 测试模式下使用 FAKEPACA 符号
+        self.symbols = ["FAKEPACA"] if config.is_test else symbols
 
         # 初始化组件
         self.historical = AlpacaHistoricalData(config)
@@ -570,6 +580,7 @@ class StrategyInterface:
             api_key=os.getenv("ALPACA_API_KEY", ""),
             secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
             paper=True,  # 纸交易
+            is_test=True,  # 启用测试模式
             data_feed=DataFeed.IEX
         )
 
@@ -614,7 +625,7 @@ class StrategyInterface:
 
 if __name__ == "__main__":
     # 使用示例 - 减少股票数量避免超限
-    symbols = ["AAPL"]
+    symbols = ["AAPL","TSLA"]
 
     strategy = StrategyInterface(symbols)
 
