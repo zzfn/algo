@@ -6,7 +6,7 @@ Al Brooks价格行为量化策略 - 基于alpaca-py的数据层架构
 from alpaca.trading.client import TradingClient
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.live import StockDataStream
-from alpaca.data.requests import StockBarsRequest, StockTradesRequest, StockLatestTradeRequest
+from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
 from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
@@ -64,20 +64,7 @@ class MarketData:
     symbol: str
     timestamp: datetime
 
-@dataclass
-class TradeData(MarketData):
-    """交易数据"""
-    price: float
-    size: int
-    conditions: List[str] = field(default_factory=list)
 
-@dataclass
-class QuoteData(MarketData):
-    """报价数据"""
-    bid_price: float
-    bid_size: int
-    ask_price: float
-    ask_size: int
 
 @dataclass
 class BarData(MarketData):
@@ -92,7 +79,6 @@ class BarData(MarketData):
 
 class DataEventType(Enum):
     TRADE = "trade"
-    QUOTE = "quote"
     BAR = "bar"
     ERROR = "error"
 
@@ -101,7 +87,7 @@ class DataEvent:
     """数据事件"""
     event_type: DataEventType
     symbol: str
-    data: MarketData
+    data: Any  # TRADE 为 float 价格，BAR 为 BarData
     timestamp: datetime = field(default_factory=datetime.now)
 
 # ========================================
@@ -122,7 +108,6 @@ class AlpacaDataStream:
         # 事件处理器
         self.event_handlers: Dict[DataEventType, List[Callable]] = {
             DataEventType.TRADE: [],
-            DataEventType.QUOTE: [],
             DataEventType.BAR: []
         }
 
@@ -149,42 +134,16 @@ class AlpacaDataStream:
 
     async def _on_trade_data(self, trade):
         print(trade)
-        """处理交易数据"""
-        trade_data = TradeData(
-            symbol=trade.symbol,
-            timestamp=trade.timestamp,
-            price=float(trade.price),
-            size=int(trade.size),
-            conditions=trade.conditions or []
-        )
-
+        """处理交易数据 - 仅传递价格"""
+        # 直接创建简单的价格事件
         event = DataEvent(
             event_type=DataEventType.TRADE,
             symbol=trade.symbol,
-            data=trade_data
+            data=float(trade.price)  # 只传递价格
         )
 
         await self._dispatch_event(event)
 
-    async def _on_quote_data(self, quote):
-        print(quote)
-        """处理报价数据"""
-        quote_data = QuoteData(
-            symbol=quote.symbol,
-            timestamp=quote.timestamp,
-            bid_price=float(quote.bid_price),
-            bid_size=int(quote.bid_size),
-            ask_price=float(quote.ask_price),
-            ask_size=int(quote.ask_size)
-        )
-
-        event = DataEvent(
-            event_type=DataEventType.QUOTE,
-            symbol=quote.symbol,
-            data=quote_data
-        )
-
-        await self._dispatch_event(event)
 
     async def _on_bar_data(self, bar):
         """处理K线数据"""
@@ -232,9 +191,6 @@ class AlpacaDataStream:
         for symbol in symbols:
             if self.config.enable_trades:
                 self.stream.subscribe_trades(self._on_trade_data, symbol)
-
-            if self.config.enable_quotes:
-                self.stream.subscribe_quotes(self._on_quote_data, symbol)
 
             if self.config.enable_bars:
                 self.stream.subscribe_bars(self._on_bar_data, symbol)
@@ -318,28 +274,6 @@ class AlpacaHistoricalData:
             logging.error(f"获取历史数据错误: {e}")
             return {symbol: pd.DataFrame() for symbol in symbols}
 
-    def get_latest_trades(self, symbols: List[str]) -> Dict[str, TradeData]:
-        """获取最新交易数据"""
-        request = StockLatestTradeRequest(symbol_or_symbols=symbols)
-
-        try:
-            trades = self.client.get_stock_latest_trade(request)
-
-            result = {}
-            for symbol, trade in trades.items():
-                result[symbol] = TradeData(
-                    symbol=symbol,
-                    timestamp=trade.timestamp,
-                    price=float(trade.price),
-                    size=int(trade.size),
-                    conditions=trade.conditions or []
-                )
-
-            return result
-
-        except APIError as e:
-            logging.error(f"获取最新交易数据错误: {e}")
-            return {}
 
 # ========================================
 # 5. 实时数据缓存 (Real-time Data Buffer)
@@ -351,40 +285,21 @@ class RealTimeDataBuffer:
     def __init__(self, buffer_size: int = 1000):
         self.buffer_size = buffer_size
 
-        # 数据缓存
-        self.trade_buffers: Dict[str, deque] = {}
-        self.quote_buffers: Dict[str, deque] = {}
+        # 数据缓存 - 仅存储 K线历史数据
         self.bar_buffers: Dict[str, deque] = {}
 
         # 最新数据
-        self.latest_trades: Dict[str, TradeData] = {}
-        self.latest_quotes: Dict[str, QuoteData] = {}
+        self.latest_trade_prices: Dict[str, float] = {}  # 只存储价格
         self.latest_bars: Dict[str, BarData] = {}
 
         # 线程锁
         self.lock = threading.Lock()
 
-    def add_trade(self, trade: TradeData):
-        """添加交易数据"""
+    def update_latest_trade_price(self, symbol: str, price: float):
+        """更新最新交易价格 - 只存储价格"""
         with self.lock:
-            symbol = trade.symbol
+            self.latest_trade_prices[symbol] = price
 
-            if symbol not in self.trade_buffers:
-                self.trade_buffers[symbol] = deque(maxlen=self.buffer_size)
-
-            self.trade_buffers[symbol].append(trade)
-            self.latest_trades[symbol] = trade
-
-    def add_quote(self, quote: QuoteData):
-        """添加报价数据"""
-        with self.lock:
-            symbol = quote.symbol
-
-            if symbol not in self.quote_buffers:
-                self.quote_buffers[symbol] = deque(maxlen=self.buffer_size)
-
-            self.quote_buffers[symbol].append(quote)
-            self.latest_quotes[symbol] = quote
 
     def add_bar(self, bar: BarData):
         """添加K线数据"""
@@ -428,26 +343,13 @@ class RealTimeDataBuffer:
         """获取当前价格"""
         with self.lock:
             # 优先使用最新交易价格
-            if symbol in self.latest_trades:
-                return self.latest_trades[symbol].price
+            if symbol in self.latest_trade_prices:
+                return self.latest_trade_prices[symbol]
 
             # 其次使用最新K线收盘价
             if symbol in self.latest_bars:
                 return self.latest_bars[symbol].close
 
-            # 最后使用报价中间价
-            if symbol in self.latest_quotes:
-                quote = self.latest_quotes[symbol]
-                return (quote.bid_price + quote.ask_price) / 2
-
-            return None
-
-    def get_bid_ask(self, symbol: str) -> Optional[tuple]:
-        """获取买卖价差"""
-        with self.lock:
-            if symbol in self.latest_quotes:
-                quote = self.latest_quotes[symbol]
-                return (quote.bid_price, quote.ask_price)
             return None
 
 # ========================================
@@ -472,7 +374,6 @@ class AlpacaDataManager:
 
         # 注册实时数据处理器
         self.stream.register_handler(DataEventType.TRADE, self._on_trade)
-        self.stream.register_handler(DataEventType.QUOTE, self._on_quote)
         self.stream.register_handler(DataEventType.BAR, self._on_bar)
 
         # 策略回调
@@ -483,16 +384,10 @@ class AlpacaDataManager:
         self.stream_thread = None
 
     def _on_trade(self, event: DataEvent):
-        """处理交易事件"""
+        """处理交易事件 - 仅更新最新价格"""
         if event.symbol in self.symbols:
-            self.buffer.add_trade(event.data)
-            self._trigger_strategy_callbacks(event.symbol, 'trade')
+            self.buffer.update_latest_trade_price(event.symbol, event.data)
 
-    def _on_quote(self, event: DataEvent):
-        """处理报价事件"""
-        if event.symbol in self.symbols:
-            self.buffer.add_quote(event.data)
-            self._trigger_strategy_callbacks(event.symbol, 'quote')
 
     def _on_bar(self, event: DataEvent):
         """处理K线事件"""
@@ -564,9 +459,6 @@ class AlpacaDataManager:
         """获取当前价格"""
         return self.buffer.get_current_price(symbol)
 
-    def get_bid_ask_spread(self, symbol: str) -> Optional[tuple]:
-        """获取买卖价差"""
-        return self.buffer.get_bid_ask(symbol)
 
 # ========================================
 # 7. 使用示例
