@@ -3,18 +3,14 @@ Al Brooks价格行为量化策略 - 基于alpaca-py的数据层架构
 使用alpaca-py官方包进行实时数据获取和交易执行
 """
 
-from alpaca.trading.client import TradingClient
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.live import StockDataStream
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderType
 from alpaca.common.exceptions import APIError
 
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
@@ -53,11 +49,6 @@ class AlpacaConfig:
     data_feed: DataFeed = DataFeed.IEX  # iex, sip
     buffer_size: int = 1000  # 数据缓存大小
 
-    # 实时数据配置
-    enable_trades: bool = True
-    enable_quotes: bool = True
-    enable_bars: bool = True
-    bar_timeframe: TimeFrame = TimeFrame.Minute  # 实时K线时间周期
 
 # ========================================
 # 2. 数据结构定义 (Data Structures)
@@ -192,13 +183,10 @@ class AlpacaDataStream:
         """订阅股票数据"""
         self.subscribed_symbols.update(symbols)
         
-        # 为每个股票单独订阅数据流
+        # 为每个股票单独订阅数据流 - 始终启用 trades 和 bars
         for symbol in symbols:
-            if self.config.enable_trades:
-                self.stream.subscribe_trades(self._on_trade_data, symbol)
-
-            if self.config.enable_bars:
-                self.stream.subscribe_bars(self._on_bar_data, symbol)
+            self.stream.subscribe_trades(self._on_trade_data, symbol)
+            self.stream.subscribe_bars(self._on_bar_data, symbol)
 
     def run(self):
         """启动数据流"""
