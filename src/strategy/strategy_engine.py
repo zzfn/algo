@@ -4,12 +4,17 @@
 """
 
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from models.market_data import BarData
 from models.strategy_data import TradingSignal, MarketContext
 from utils.log import setup_logging
+from config.config import TradingConfig
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+from utils.data_transforms import alpaca_bars_to_dataframe
 
 log = setup_logging()
 
@@ -19,14 +24,51 @@ class StrategyEngine:
     策略引擎 - 协调单个股票的完整策略流水线
     """
 
-    def __init__(self, symbol: str):
+    def __init__(self, symbol: str, config: Optional[TradingConfig] = None):
         self.symbol = symbol
+        self.config = config or TradingConfig.create()
         self.historical_data: Optional[pd.DataFrame] = None
         self.current_context: Optional[MarketContext] = None
 
         # 策略状态
         self.last_signal: Optional[TradingSignal] = None
         self.position_size: float = 0.0  # 当前持仓
+
+        # 自动加载历史数据
+        self._load_historical_data()
+
+    def _load_historical_data(self, days: int = 30):
+        """自动加载历史数据"""
+        try:
+            client = StockHistoricalDataClient(
+                api_key=self.config.api_key,
+                secret_key=self.config.secret_key
+            )
+
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            request = StockBarsRequest(
+                symbol_or_symbols=[self.symbol],
+                timeframe=TimeFrame.Minute,
+                start=start_date,
+                end=end_date,
+                feed=self.config.data_feed
+            )
+
+            bars = client.get_stock_bars(request)
+            symbol_bars = bars.data.get(self.symbol, [])
+
+            if symbol_bars:
+                self.historical_data = alpaca_bars_to_dataframe(symbol_bars)
+                log.info(f"[STRATEGY] {self.symbol}: 自动加载了{len(self.historical_data)}根历史K线")
+            else:
+                log.warning(f"[STRATEGY] {self.symbol}: 未获取到历史数据")
+                self.historical_data = pd.DataFrame()
+
+        except Exception as e:
+            log.error(f"[STRATEGY] {self.symbol}: 加载历史数据失败: {e}")
+            self.historical_data = pd.DataFrame()
 
     def set_historical_data(self, historical_data: pd.DataFrame):
         """设置历史数据用于初始化"""

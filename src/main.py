@@ -423,8 +423,7 @@ class TradingEngine:
             self
         )
 
-        # 预加载历史数据
-        self.historical_data = {}
+        # 策略引擎自己管理历史数据，无需预加载
 
 
     def handle_trading_signal(self, signal: TradingSignal):
@@ -437,14 +436,6 @@ class TradingEngine:
 
     def start(self):
         """启动策略"""
-        log.info("[STRATEGY] 加载历史数据...")
-        self.historical_data = self.data_manager.load_historical_data(30)
-
-        # 为每个策略引擎设置历史数据
-        for symbol, historical_df in self.historical_data.items():
-            if symbol in self.strategy_engines:
-                self.strategy_engines[symbol].set_historical_data(historical_df)
-
         log.info("[STRATEGY] 启动实时数据流...")
         self.data_manager.start_stream()
 
