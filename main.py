@@ -23,6 +23,7 @@ import os
 from dotenv import load_dotenv
 from logbook import Logger, StreamHandler
 import sys
+import arrow
 
 # 加载环境变量
 load_dotenv()
@@ -112,24 +113,19 @@ class AlpacaDataStream:
 
     def _init_stream(self):
         """初始化数据流"""
-        if self.config.is_test:
-            self.stream = StockDataStream(
-                api_key=self.config.api_key,
-                secret_key=self.config.secret_key,
-                feed=self.config.data_feed,
-                url_override="wss://stream.data.alpaca.markets/v2/test"
-            )
-        else:
-            self.stream = StockDataStream(
-                api_key=self.config.api_key,
-                secret_key=self.config.secret_key,
-                feed=self.config.data_feed
-            )
+        self.stream = StockDataStream(
+            api_key=self.config.api_key,
+            secret_key=self.config.secret_key,
+            feed=self.config.data_feed,
+            url_override="wss://stream.data.alpaca.markets/v2/test" if self.config.is_test else None
+        )
 
         # 数据处理器在订阅时设置
 
     async def _on_trade_data(self, trade):
-        log.info(f"[TRADE] 收到交易数据: {trade}")
+        # 转换为美东时间并格式化
+        et_time = arrow.get(trade.timestamp).to('US/Eastern').format('YYYY-MM-DD HH:mm:ss.SSSSSS')
+        log.info(f"[TRADE] {trade.symbol} {et_time} ${trade.price}")
         """处理交易数据 - 仅传递价格"""
         # 直接创建简单的价格事件
         event = DataEvent(
