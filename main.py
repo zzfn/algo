@@ -18,7 +18,6 @@ from enum import Enum
 from collections import deque
 import threading
 import asyncio
-import time
 import os
 from dotenv import load_dotenv
 from logbook import Logger, StreamHandler
@@ -368,8 +367,7 @@ class AlpacaDataManager:
         # 策略回调
         self.strategy_callbacks: List[Callable] = []
 
-        # 启动标志
-        self.running = False
+        # 数据流线程
         self.stream_thread = None
 
     def _on_trade(self, event: DataEvent):
@@ -410,28 +408,19 @@ class AlpacaDataManager:
 
     def start_stream(self):
         """启动实时数据流"""
-        if self.running:
-            return
-
-        self.running = True
-
         # 在单独线程中运行数据流
         def run_stream():
             # 先订阅股票，再启动流
             self.stream.subscribe_symbols(self.symbols)
             self.stream.run()
 
-        self.stream_thread = threading.Thread(target=run_stream, daemon=True)
+        self.stream_thread = threading.Thread(target=run_stream, daemon=False)
         self.stream_thread.start()
 
         log.info(f"[STREAM] 已启动实时数据流，监听股票: {self.symbols}")
 
     def stop_stream(self):
         """停止实时数据流"""
-        if not self.running:
-            return
-
-        self.running = False
         self.stream.stop()
 
         if self.stream_thread:
@@ -513,9 +502,8 @@ if __name__ == "__main__":
     try:
         strategy.start()
 
-        # 保持运行
-        while True:
-            time.sleep(1)
+        # 等待数据流线程结束（或 Ctrl+C 中断）
+        strategy.data_manager.stream_thread.join()
 
     except KeyboardInterrupt:
         log.info("[STRATEGY] 停止策略...")
