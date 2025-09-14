@@ -96,11 +96,14 @@ class StrategyEngine:
             # 5. 风险管理
             final_signal = self._risk_management(signal, market_context)
 
-            # 6. 执行决策（这里只是记录，实际执行由上层处理）
+            # 6. 执行决策
             if final_signal:
                 self.last_signal = final_signal
                 log.info(f"[STRATEGY] {self.symbol}: 生成{final_signal.signal_type}信号 "
                         f"@{final_signal.price:.2f} 置信度:{final_signal.confidence:.2f}")
+
+                # 直接处理交易信号
+                self.handle_trading_signal(final_signal)
 
             return final_signal
 
@@ -303,3 +306,12 @@ class StrategyEngine:
     def get_last_signal(self) -> Optional[TradingSignal]:
         """获取最后的交易信号"""
         return self.last_signal
+
+    def handle_trading_signal(self, signal: TradingSignal):
+        """处理生成的交易信号"""
+        log.info(f"[SIGNAL] {self.symbol}: {signal.signal_type}信号 "
+                f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
+
+        # TODO: 在这里实现具体的交易执行逻辑
+        # 例如：下单、仓位管理、风险控制等
+        # 每个策略引擎可以有不同的执行逻辑

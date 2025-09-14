@@ -27,7 +27,6 @@ from utils.data_transforms import (
 )
 from models.market_data import BarData
 from strategy.strategy_engine import StrategyEngine
-from models.strategy_data import TradingSignal
 
 # 初始化日志
 log = setup_logging()
@@ -290,7 +289,7 @@ class AlpacaDataManager:
     整合实时流、历史数据、缓存管理
     """
 
-    def __init__(self, config: TradingConfig, symbols: List[str], strategy_engines: Dict[str, StrategyEngine] = None, trading_engine=None):
+    def __init__(self, config: TradingConfig, symbols: List[str], strategy_engines: Dict[str, StrategyEngine] = None):
         self.config = config
         # 测试模式下使用 FAKEPACA 符号
         self.symbols = ["FAKEPACA"] if config.is_test else symbols
@@ -302,7 +301,6 @@ class AlpacaDataManager:
 
         # 策略引擎引用
         self.strategy_engines = strategy_engines or {}
-        self.trading_engine = trading_engine
 
         # 为每个股票创建数据流实例并设置回调
         self.symbol_streams: Dict[str, SymbolDataStream] = {}
@@ -342,12 +340,8 @@ class AlpacaDataManager:
         if len(bars_df) < 20:  # 数据不够，跳过
             return
 
-        # 使用策略引擎处理新K线
-        signal = strategy_engine.process_new_bar(bar_data, bars_df)
-
-        # 处理生成的交易信号
-        if signal and self.trading_engine:
-            self.trading_engine.handle_trading_signal(signal)
+        # 使用策略引擎处理新K线（策略引擎内部会处理信号）
+        strategy_engine.process_new_bar(bar_data, bars_df)
         
     def get_symbol_stream(self, symbol: str) -> Optional[SymbolDataStream]:
         """获取指定股票的数据流实例"""
@@ -419,20 +413,11 @@ class TradingEngine:
         self.data_manager = AlpacaDataManager(
             config,
             config.symbols,
-            self.strategy_engines,
-            self
+            self.strategy_engines
         )
 
         # 策略引擎自己管理历史数据，无需预加载
 
-
-    def handle_trading_signal(self, signal: TradingSignal):
-        """处理交易信号"""
-        log.info(f"[ENGINE] 收到交易信号: {signal.symbol} {signal.signal_type} "
-                f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
-
-        # TODO: 在这里实现具体的交易执行逻辑
-        # 例如：下单、仓位管理、风险控制等
 
     def start(self):
         """启动策略"""
