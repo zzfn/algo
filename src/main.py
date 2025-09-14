@@ -3,27 +3,17 @@ Al Brooks价格行为量化策略 - 基于alpaca-py的数据层架构
 使用alpaca-py官方包进行实时数据获取和交易执行
 """
 
-from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.live import StockDataStream
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
-from alpaca.common.exceptions import APIError
 
-import pandas as pd
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable, Any
-from collections import deque
+from datetime import datetime
+from typing import Dict, List, Optional, Callable
 import threading
-import asyncio
 
 from config.config import TradingConfig
 from utils.log import setup_logging
 from utils.data_transforms import (
     alpaca_bar_to_bar_data,
-    bars_to_dataframe,
-    alpaca_bars_to_dataframe,
-    format_timestamp_to_et,
-    get_latest_bars_slice
+    format_timestamp_to_et
 )
 from models.market_data import BarData
 from strategy.strategy_engine import StrategyEngine
@@ -169,57 +159,7 @@ class AlpacaDataStreamManager:
             self.stream.stop()
 
 # ========================================
-# 4. 历史数据管理 (Historical Data)
-# ========================================
-
-class AlpacaHistoricalData:
-    """
-    Alpaca历史数据管理
-    使用alpaca-py的StockHistoricalDataClient
-    """
-
-    def __init__(self, config: TradingConfig):
-        self.config = config
-        self.client = StockHistoricalDataClient(
-            api_key=config.api_key,
-            secret_key=config.secret_key
-        )
-
-    def get_bars(self,
-                 symbols: List[str],
-                 timeframe: TimeFrame,
-                 start: datetime,
-                 end: Optional[datetime] = None,
-                 limit: Optional[int] = None) -> Dict[str, pd.DataFrame]:
-        """获取历史K线数据"""
-
-        request = StockBarsRequest(
-            symbol_or_symbols=symbols,
-            timeframe=timeframe,
-            start=start,
-            end=end or datetime.now(),
-            limit=limit,
-            feed=self.config.data_feed
-        )
-
-        try:
-            bars = self.client.get_stock_bars(request)
-
-            # 使用纯函数转换为DataFrame格式
-            result = {}
-            for symbol in symbols:
-                symbol_bars = bars.data.get(symbol, [])
-                result[symbol] = alpaca_bars_to_dataframe(symbol_bars)
-
-            return result
-
-        except APIError as e:
-            log.error(f"[ERROR] 获取历史数据错误: {e}")
-            return {symbol: pd.DataFrame() for symbol in symbols}
-
-
-# ========================================
-# 5. 主数据管理器 (Main Data Manager)
+# 4. 主数据管理器 (Main Data Manager)
 # ========================================
 
 class AlpacaDataManager:
@@ -234,7 +174,6 @@ class AlpacaDataManager:
         self.symbols = ["FAKEPACA"] if config.is_test else symbols
 
         # 初始化组件
-        self.historical = AlpacaHistoricalData(config)
         self.stream_manager = AlpacaDataStreamManager(config)
 
         # 策略引擎引用
@@ -283,17 +222,6 @@ class AlpacaDataManager:
         """获取指定股票的数据流实例"""
         return self.symbol_streams.get(symbol)
 
-    def load_historical_data(self, days: int = 30) -> Dict[str, pd.DataFrame]:
-        """加载历史数据"""
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-
-        return self.historical.get_bars(
-            symbols=self.symbols,
-            timeframe=TimeFrame.Minute,
-            start=start_date,
-            end=end_date
-        )
 
     def start_stream(self):
         """启动实时数据流"""
