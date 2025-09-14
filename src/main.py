@@ -20,18 +20,17 @@ import threading
 import asyncio
 import os
 from dotenv import load_dotenv
-from logbook import Logger, StreamHandler
 import sys
 import arrow
 
 from config.config import TradingConfig
+from utils.log import setup_logging
 
 # 加载环境变量
 load_dotenv()
 
-# 初始化日志 - 配置输出到控制台
-StreamHandler(sys.stdout, level='INFO').push_application()
-log = Logger('AlgoTrading')
+# 初始化日志
+log = setup_logging()
 
 # ========================================
 # 1. 数据结构定义 (Data Structures)
