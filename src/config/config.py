@@ -6,6 +6,7 @@ from alpaca.data.enums import DataFeed
 import yaml
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 
 @dataclass
@@ -28,6 +29,9 @@ class TradingConfig:
     @classmethod
     def create(cls, config_path: str = None) -> 'TradingConfig':
         """创建配置实例，自动加载所有配置"""
+        # 加载环境变量
+        load_dotenv()
+
         if config_path is None:
             # 默认配置文件路径 - 当前工作目录下的 config.yaml
             config_path = Path.cwd() / "config.yaml"

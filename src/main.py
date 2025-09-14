@@ -12,59 +12,17 @@ from alpaca.common.exceptions import APIError
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Any
-from dataclasses import dataclass, field
-from enum import Enum
 from collections import deque
 import threading
 import asyncio
-from dotenv import load_dotenv
-import sys
 import arrow
 
 from config.config import TradingConfig
 from utils.log import setup_logging
-
-# 加载环境变量
-load_dotenv()
+from models.market_data import BarData
 
 # 初始化日志
 log = setup_logging()
-
-# ========================================
-# 1. 数据结构定义 (Data Structures)
-# ========================================
-
-@dataclass
-class MarketData:
-    """市场数据基类"""
-    symbol: str
-    timestamp: datetime
-
-
-
-@dataclass
-class BarData(MarketData):
-    """K线数据"""
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
-    vwap: Optional[float] = None
-    trade_count: Optional[int] = None
-
-class DataEventType(Enum):
-    TRADE = "trade"
-    BAR = "bar"
-    ERROR = "error"
-
-@dataclass
-class DataEvent:
-    """数据事件"""
-    event_type: DataEventType
-    symbol: str
-    data: Any  # TRADE 为 float 价格，BAR 为 BarData
-    timestamp: datetime = field(default_factory=datetime.now)
 
 # ========================================
 # 3. 实时数据流管理 (Real-time Data Stream)
