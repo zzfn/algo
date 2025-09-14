@@ -15,10 +15,16 @@ from typing import Dict, List, Optional, Callable, Any
 from collections import deque
 import threading
 import asyncio
-import arrow
 
 from config.config import TradingConfig
 from utils.log import setup_logging
+from utils.data_transforms import (
+    alpaca_bar_to_bar_data,
+    bars_to_dataframe,
+    alpaca_bars_to_dataframe,
+    format_timestamp_to_et,
+    get_latest_bars_slice
+)
 from models.market_data import BarData
 
 # 初始化日志
@@ -59,11 +65,11 @@ class SymbolDataStream:
     def handle_trade_data(self, price: float, timestamp: datetime):
         """处理交易数据"""
         self.latest_price = price
-        
-        # 转换为美东时间并格式化
-        et_time = arrow.get(timestamp).to('US/Eastern').format('YYYY-MM-DD HH:mm:ss.SSSSSS')
+
+        # 使用纯函数转换时间格式
+        et_time = format_timestamp_to_et(timestamp)
         log.info(f"[TRADE] {self.symbol} {et_time} ${price}")
-        
+
         if self.on_trade_callback:
             try:
                 self.on_trade_callback(price, timestamp)
@@ -132,17 +138,8 @@ class AlpacaDataStreamManager:
         """全局K线数据处理器 - 分发到对应的股票实例"""
         symbol_stream = self.symbol_streams.get(bar.symbol)
         if symbol_stream:
-            bar_data = BarData(
-                symbol=bar.symbol,
-                timestamp=bar.timestamp,
-                open=float(bar.open),
-                high=float(bar.high),
-                low=float(bar.low),
-                close=float(bar.close),
-                volume=int(bar.volume),
-                vwap=float(bar.vwap) if bar.vwap else None,
-                trade_count=int(bar.trade_count) if bar.trade_count else None
-            )
+            # 使用纯函数转换数据
+            bar_data = alpaca_bar_to_bar_data(bar)
             symbol_stream.handle_bar_data(bar_data)
 
     def subscribe_symbols(self, symbol_list: List[str]) -> List[SymbolDataStream]:
@@ -207,28 +204,11 @@ class AlpacaHistoricalData:
         try:
             bars = self.client.get_stock_bars(request)
 
-            # 转换为DataFrame格式
+            # 使用纯函数转换为DataFrame格式
             result = {}
             for symbol in symbols:
                 symbol_bars = bars.data.get(symbol, [])
-                if symbol_bars:
-                    df_data = []
-                    for bar in symbol_bars:
-                        df_data.append({
-                            'timestamp': bar.timestamp,
-                            'open': float(bar.open),
-                            'high': float(bar.high),
-                            'low': float(bar.low),
-                            'close': float(bar.close),
-                            'volume': int(bar.volume),
-                            'vwap': float(bar.vwap) if bar.vwap else None
-                        })
-
-                    df = pd.DataFrame(df_data)
-                    df.set_index('timestamp', inplace=True)
-                    result[symbol] = df
-                else:
-                    result[symbol] = pd.DataFrame()
+                result[symbol] = alpaca_bars_to_dataframe(symbol_bars)
 
             return result
 
@@ -280,26 +260,10 @@ class RealTimeDataBuffer:
             if symbol not in self.bar_buffers:
                 return pd.DataFrame()
 
-            bars = list(self.bar_buffers[symbol])[-count:]
-
-            df_data = []
-            for bar in bars:
-                df_data.append({
-                    'timestamp': bar.timestamp,
-                    'open': bar.open,
-                    'high': bar.high,
-                    'low': bar.low,
-                    'close': bar.close,
-                    'volume': bar.volume,
-                    'vwap': bar.vwap
-                })
-
-            if df_data:
-                df = pd.DataFrame(df_data)
-                df.set_index('timestamp', inplace=True)
-                return df
-            else:
-                return pd.DataFrame()
+            # 使用纯函数获取最近的K线并转换为DataFrame
+            all_bars = list(self.bar_buffers[symbol])
+            recent_bars = get_latest_bars_slice(all_bars, count)
+            return bars_to_dataframe(recent_bars)
 
     def get_current_price(self, symbol: str) -> Optional[float]:
         """获取当前价格"""
