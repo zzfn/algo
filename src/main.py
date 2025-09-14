@@ -290,7 +290,7 @@ class AlpacaDataManager:
     整合实时流、历史数据、缓存管理
     """
 
-    def __init__(self, config: TradingConfig, symbols: List[str]):
+    def __init__(self, config: TradingConfig, symbols: List[str], strategy_engines: Dict[str, StrategyEngine] = None, trading_engine=None):
         self.config = config
         # 测试模式下使用 FAKEPACA 符号
         self.symbols = ["FAKEPACA"] if config.is_test else symbols
@@ -300,12 +300,16 @@ class AlpacaDataManager:
         self.stream_manager = AlpacaDataStreamManager(config)
         self.buffer = RealTimeDataBuffer(config.buffer_size)
 
+        # 策略引擎引用
+        self.strategy_engines = strategy_engines or {}
+        self.trading_engine = trading_engine
+
         # 为每个股票创建数据流实例并设置回调
         self.symbol_streams: Dict[str, SymbolDataStream] = {}
         for symbol in self.symbols:
             symbol_stream = self.stream_manager.add_symbol(symbol)
             self.symbol_streams[symbol] = symbol_stream
-            
+
             # 设置每个股票的专属回调
             symbol_stream.set_trade_callback(
                 lambda price, timestamp, s=symbol: self._on_trade(s, price, timestamp)
@@ -313,9 +317,6 @@ class AlpacaDataManager:
             symbol_stream.set_bar_callback(
                 lambda bar_data, s=symbol: self._on_bar(s, bar_data)
             )
-
-        # 策略回调
-        self.strategy_callbacks: List[Callable] = []
 
         # 数据流线程
         self.stream_thread = None
@@ -325,21 +326,28 @@ class AlpacaDataManager:
         self.buffer.update_latest_trade_price(symbol, price)
 
     def _on_bar(self, symbol: str, bar_data: BarData):
-        """处理K线事件"""
+        """处理K线事件并直接执行策略"""
         self.buffer.add_bar(bar_data)
-        self._trigger_strategy_callbacks(symbol, 'bar')
 
-    def _trigger_strategy_callbacks(self, symbol: str, data_type: str):
-        """触发策略回调"""
-        for callback in self.strategy_callbacks:
-            try:
-                callback(symbol, data_type)
-            except Exception as e:
-                log.error(f"[ERROR] 策略回调错误: {e}")
+        # 直接执行策略处理
+        if symbol in self.strategy_engines:
+            self._process_strategy(symbol, bar_data)
 
-    def register_strategy_callback(self, callback: Callable):
-        """注册策略回调"""
-        self.strategy_callbacks.append(callback)
+    def _process_strategy(self, symbol: str, bar_data: BarData):
+        """处理单个股票的策略逻辑"""
+        strategy_engine = self.strategy_engines[symbol]
+
+        # 获取最新的K线数据
+        bars_df = self.get_realtime_bars(symbol, 50)
+        if len(bars_df) < 20:  # 数据不够，跳过
+            return
+
+        # 使用策略引擎处理新K线
+        signal = strategy_engine.process_new_bar(bar_data, bars_df)
+
+        # 处理生成的交易信号
+        if signal and self.trading_engine:
+            self.trading_engine.handle_trading_signal(signal)
         
     def get_symbol_stream(self, symbol: str) -> Optional[SymbolDataStream]:
         """获取指定股票的数据流实例"""
@@ -402,42 +410,22 @@ class TradingEngine:
         config = TradingConfig.create()
         self.symbols = config.symbols
 
-        self.data_manager = AlpacaDataManager(config, config.symbols)
-
         # 为每个股票创建策略引擎
         self.strategy_engines: Dict[str, StrategyEngine] = {}
         for symbol in self.symbols:
             self.strategy_engines[symbol] = StrategyEngine(symbol)
 
-        # 注册策略回调
-        self.data_manager.register_strategy_callback(self.on_market_data_update)
+        # 创建数据管理器，传入策略引擎引用
+        self.data_manager = AlpacaDataManager(
+            config,
+            config.symbols,
+            self.strategy_engines,
+            self
+        )
 
         # 预加载历史数据
         self.historical_data = {}
 
-    def on_market_data_update(self, symbol: str, data_type: str):
-        """市场数据更新回调"""
-        if data_type == 'bar':
-            strategy_engine = self.strategy_engines.get(symbol)
-            if not strategy_engine:
-                return
-
-            # 获取最新的K线数据
-            bars_df = self.data_manager.get_realtime_bars(symbol, 50)
-            if len(bars_df) < 20:  # 数据不够，跳过
-                return
-
-            # 获取最新的BarData
-            latest_bar_data = self.data_manager.buffer.latest_bars.get(symbol)
-            if not latest_bar_data:
-                return
-
-            # 使用策略引擎处理新K线
-            signal = strategy_engine.process_new_bar(latest_bar_data, bars_df)
-
-            # 处理生成的交易信号
-            if signal:
-                self.handle_trading_signal(signal)
 
     def handle_trading_signal(self, signal: TradingSignal):
         """处理交易信号"""
