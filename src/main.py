@@ -24,6 +24,8 @@ from logbook import Logger, StreamHandler
 import sys
 import arrow
 
+from config.config import TradingConfig
+
 # 加载环境变量
 load_dotenv()
 
@@ -32,26 +34,7 @@ StreamHandler(sys.stdout, level='INFO').push_application()
 log = Logger('AlgoTrading')
 
 # ========================================
-# 1. 配置管理 (Configuration)
-# ========================================
-
-@dataclass
-class AlpacaConfig:
-    """Alpaca配置"""
-    # API密钥
-    api_key: str = ""
-    secret_key: str = ""
-
-    # 环境设置
-    is_test: bool = False  # True为测试模式
-
-    # 数据设置
-    data_feed: DataFeed = DataFeed.IEX  # iex, sip
-    buffer_size: int = 1000  # 数据缓存大小
-
-
-# ========================================
-# 2. 数据结构定义 (Data Structures)
+# 1. 数据结构定义 (Data Structures)
 # ========================================
 
 @dataclass
@@ -93,7 +76,7 @@ class DataEvent:
 class SymbolDataStream:
     """单个股票的数据流处理器"""
     
-    def __init__(self, symbol: str, config: AlpacaConfig):
+    def __init__(self, symbol: str, config: TradingConfig):
         self.symbol = symbol
         self.config = config
         
@@ -153,7 +136,7 @@ class AlpacaDataStreamManager:
     管理所有股票的数据流实例
     """
 
-    def __init__(self, config: AlpacaConfig):
+    def __init__(self, config: TradingConfig):
         self.config = config
         self.stream = None
         self.symbol_streams: Dict[str, SymbolDataStream] = {}
@@ -242,7 +225,7 @@ class AlpacaHistoricalData:
     使用alpaca-py的StockHistoricalDataClient
     """
 
-    def __init__(self, config: AlpacaConfig):
+    def __init__(self, config: TradingConfig):
         self.config = config
         self.client = StockHistoricalDataClient(
             api_key=config.api_key,
@@ -386,7 +369,7 @@ class AlpacaDataManager:
     整合实时流、历史数据、缓存管理
     """
 
-    def __init__(self, config: AlpacaConfig, symbols: List[str]):
+    def __init__(self, config: TradingConfig, symbols: List[str]):
         self.config = config
         # 测试模式下使用 FAKEPACA 符号
         self.symbols = ["FAKEPACA"] if config.is_test else symbols
@@ -495,7 +478,7 @@ class StrategyInterface:
 
     def __init__(self, symbols: List[str]):
         # 配置Alpaca
-        config = AlpacaConfig(
+        config = TradingConfig(
             api_key=os.getenv("ALPACA_API_KEY", ""),
             secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
             is_test=True,  # 启用测试模式
