@@ -26,6 +26,8 @@ from utils.data_transforms import (
     get_latest_bars_slice
 )
 from models.market_data import BarData
+from strategy.strategy_engine import StrategyEngine
+from models.strategy_data import TradingSignal
 
 # 初始化日志
 log = setup_logging()
@@ -402,6 +404,11 @@ class TradingEngine:
 
         self.data_manager = AlpacaDataManager(config, config.symbols)
 
+        # 为每个股票创建策略引擎
+        self.strategy_engines: Dict[str, StrategyEngine] = {}
+        for symbol in self.symbols:
+            self.strategy_engines[symbol] = StrategyEngine(symbol)
+
         # 注册策略回调
         self.data_manager.register_strategy_callback(self.on_market_data_update)
 
@@ -411,25 +418,44 @@ class TradingEngine:
     def on_market_data_update(self, symbol: str, data_type: str):
         """市场数据更新回调"""
         if data_type == 'bar':
-            # K线更新时触发策略分析
-            current_price = self.data_manager.get_current_price(symbol)
+            strategy_engine = self.strategy_engines.get(symbol)
+            if not strategy_engine:
+                return
+
+            # 获取最新的K线数据
             bars_df = self.data_manager.get_realtime_bars(symbol, 50)
+            if len(bars_df) < 20:  # 数据不够，跳过
+                return
 
-            if len(bars_df) >= 20:  # 有足够数据时分析
-                log.info(f"[STRATEGY] {symbol}: 新K线 @ {current_price}, 共{len(bars_df)}根K线")
+            # 获取最新的BarData
+            latest_bar_data = self.data_manager.buffer.latest_bars.get(symbol)
+            if not latest_bar_data:
+                return
 
-                # 这里调用Al Brooks策略分析
-                self.analyze_price_action(symbol, bars_df, current_price)
+            # 使用策略引擎处理新K线
+            signal = strategy_engine.process_new_bar(latest_bar_data, bars_df)
 
-    def analyze_price_action(self, symbol: str, bars: pd.DataFrame, current_price: float):
-        """价格行为分析"""
-        # TODO: 实现Al Brooks价格行为分析逻辑
-        pass
+            # 处理生成的交易信号
+            if signal:
+                self.handle_trading_signal(signal)
+
+    def handle_trading_signal(self, signal: TradingSignal):
+        """处理交易信号"""
+        log.info(f"[ENGINE] 收到交易信号: {signal.symbol} {signal.signal_type} "
+                f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
+
+        # TODO: 在这里实现具体的交易执行逻辑
+        # 例如：下单、仓位管理、风险控制等
 
     def start(self):
         """启动策略"""
         log.info("[STRATEGY] 加载历史数据...")
         self.historical_data = self.data_manager.load_historical_data(30)
+
+        # 为每个策略引擎设置历史数据
+        for symbol, historical_df in self.historical_data.items():
+            if symbol in self.strategy_engines:
+                self.strategy_engines[symbol].set_historical_data(historical_df)
 
         log.info("[STRATEGY] 启动实时数据流...")
         self.data_manager.start_stream()
