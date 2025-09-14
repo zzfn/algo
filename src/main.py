@@ -7,7 +7,6 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.live import StockDataStream
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from alpaca.data.enums import DataFeed
 from alpaca.common.exceptions import APIError
 
 import pandas as pd
@@ -18,7 +17,6 @@ from enum import Enum
 from collections import deque
 import threading
 import asyncio
-import os
 from dotenv import load_dotenv
 import sys
 import arrow
@@ -475,17 +473,12 @@ class AlpacaDataManager:
 class StrategyInterface:
     """策略接口示例"""
 
-    def __init__(self, symbols: List[str]):
-        # 配置Alpaca
-        config = TradingConfig(
-            api_key=os.getenv("ALPACA_API_KEY", ""),
-            secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
-            is_test=True,  # 启用测试模式
-            data_feed=DataFeed.IEX
-        )
+    def __init__(self):
+        # 自动加载所有配置
+        config = TradingConfig.create()
+        self.symbols = config.symbols
 
-        self.symbols = symbols
-        self.data_manager = AlpacaDataManager(config, symbols)
+        self.data_manager = AlpacaDataManager(config, config.symbols)
 
         # 注册策略回调
         self.data_manager.register_strategy_callback(self.on_market_data_update)
@@ -524,10 +517,7 @@ class StrategyInterface:
         self.data_manager.stop_stream()
 
 if __name__ == "__main__":
-    # 使用示例 - 减少股票数量避免超限
-    symbols = ["AAPL","TSLA"]
-
-    strategy = StrategyInterface(symbols)
+    strategy = StrategyInterface()
 
     try:
         strategy.start()
