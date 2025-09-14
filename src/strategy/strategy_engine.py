@@ -6,6 +6,8 @@
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
+from collections import deque
+import threading
 
 from models.market_data import BarData
 from models.strategy_data import TradingSignal, MarketContext
@@ -14,7 +16,7 @@ from config.config import TradingConfig
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from utils.data_transforms import alpaca_bars_to_dataframe
+from utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
 
 log = setup_logging()
 
@@ -33,6 +35,13 @@ class StrategyEngine:
         # 策略状态
         self.last_signal: Optional[TradingSignal] = None
         self.position_size: float = 0.0  # 当前持仓
+
+        # 实时数据缓存
+        self.buffer_size = getattr(config, 'buffer_size', 1000) if config else 1000
+        self.bar_buffer: deque = deque(maxlen=self.buffer_size)
+        self.latest_trade_price: Optional[float] = None
+        self.latest_bar: Optional[BarData] = None
+        self.lock = threading.Lock()
 
         # 自动加载历史数据
         self._load_historical_data()
@@ -75,11 +84,19 @@ class StrategyEngine:
         self.historical_data = historical_data
         log.info(f"[STRATEGY] {self.symbol}: 已加载{len(historical_data)}根历史K线")
 
-    def process_new_bar(self, bar_data: BarData, recent_bars: pd.DataFrame) -> Optional[TradingSignal]:
+    def process_new_bar(self, bar_data: BarData) -> Optional[TradingSignal]:
         """
         处理新的K线数据，执行完整的策略流水线
         """
         try:
+            # 先添加新K线到缓存
+            self.add_bar(bar_data)
+
+            # 获取最近的K线数据用于分析
+            recent_bars = self.get_recent_bars(50)
+            if len(recent_bars) < 20:  # 数据不够，跳过
+                return None
+
             # 1. 数据清洗处理
             cleaned_data = self._data_cleaning(recent_bars)
 
@@ -315,3 +332,38 @@ class StrategyEngine:
         # TODO: 在这里实现具体的交易执行逻辑
         # 例如：下单、仓位管理、风险控制等
         # 每个策略引擎可以有不同的执行逻辑
+
+    def update_trade_price(self, price: float):
+        """更新最新交易价格"""
+        with self.lock:
+            self.latest_trade_price = price
+
+    def add_bar(self, bar: BarData):
+        """添加新的K线数据到缓存"""
+        with self.lock:
+            self.bar_buffer.append(bar)
+            self.latest_bar = bar
+
+    def get_recent_bars(self, count: int = 50) -> pd.DataFrame:
+        """获取最近的K线数据"""
+        with self.lock:
+            if len(self.bar_buffer) == 0:
+                return pd.DataFrame()
+
+            # 获取最近的K线并转换为DataFrame
+            all_bars = list(self.bar_buffer)
+            recent_bars = get_latest_bars_slice(all_bars, count)
+            return bars_to_dataframe(recent_bars)
+
+    def get_current_price(self) -> Optional[float]:
+        """获取当前价格"""
+        with self.lock:
+            # 优先使用最新交易价格
+            if self.latest_trade_price is not None:
+                return self.latest_trade_price
+
+            # 其次使用最新K线收盘价
+            if self.latest_bar is not None:
+                return self.latest_bar.close
+
+            return None

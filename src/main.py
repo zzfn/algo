@@ -219,74 +219,13 @@ class AlpacaHistoricalData:
 
 
 # ========================================
-# 5. 实时数据缓存 (Real-time Data Buffer)
-# ========================================
-
-class RealTimeDataBuffer:
-    """实时数据缓存管理"""
-
-    def __init__(self, buffer_size: int = 1000):
-        self.buffer_size = buffer_size
-
-        # 数据缓存 - 仅存储 K线历史数据
-        self.bar_buffers: Dict[str, deque] = {}
-
-        # 最新数据
-        self.latest_trade_prices: Dict[str, float] = {}  # 只存储价格
-        self.latest_bars: Dict[str, BarData] = {}
-
-        # 线程锁
-        self.lock = threading.Lock()
-
-    def update_latest_trade_price(self, symbol: str, price: float):
-        """更新最新交易价格 - 只存储价格"""
-        with self.lock:
-            self.latest_trade_prices[symbol] = price
-
-
-    def add_bar(self, bar: BarData):
-        """添加K线数据"""
-        with self.lock:
-            symbol = bar.symbol
-
-            if symbol not in self.bar_buffers:
-                self.bar_buffers[symbol] = deque(maxlen=self.buffer_size)
-
-            self.bar_buffers[symbol].append(bar)
-            self.latest_bars[symbol] = bar
-
-    def get_recent_bars(self, symbol: str, count: int = 50) -> pd.DataFrame:
-        """获取最近的K线数据"""
-        with self.lock:
-            if symbol not in self.bar_buffers:
-                return pd.DataFrame()
-
-            # 使用纯函数获取最近的K线并转换为DataFrame
-            all_bars = list(self.bar_buffers[symbol])
-            recent_bars = get_latest_bars_slice(all_bars, count)
-            return bars_to_dataframe(recent_bars)
-
-    def get_current_price(self, symbol: str) -> Optional[float]:
-        """获取当前价格"""
-        with self.lock:
-            # 优先使用最新交易价格
-            if symbol in self.latest_trade_prices:
-                return self.latest_trade_prices[symbol]
-
-            # 其次使用最新K线收盘价
-            if symbol in self.latest_bars:
-                return self.latest_bars[symbol].close
-
-            return None
-
-# ========================================
-# 6. 主数据管理器 (Main Data Manager)
+# 5. 主数据管理器 (Main Data Manager)
 # ========================================
 
 class AlpacaDataManager:
     """
     Alpaca数据管理器主类
-    整合实时流、历史数据、缓存管理
+    整合实时流、历史数据，协调策略引擎
     """
 
     def __init__(self, config: TradingConfig, symbols: List[str], strategy_engines: Dict[str, StrategyEngine] = None):
@@ -297,7 +236,6 @@ class AlpacaDataManager:
         # 初始化组件
         self.historical = AlpacaHistoricalData(config)
         self.stream_manager = AlpacaDataStreamManager(config)
-        self.buffer = RealTimeDataBuffer(config.buffer_size)
 
         # 策略引擎引用
         self.strategy_engines = strategy_engines or {}
@@ -320,14 +258,12 @@ class AlpacaDataManager:
         self.stream_thread = None
 
     def _on_trade(self, symbol: str, price: float, timestamp: datetime):
-        """处理交易事件 - 仅更新最新价格"""
-        self.buffer.update_latest_trade_price(symbol, price)
+        """处理交易事件 - 传递给策略引擎"""
+        self._process_trade(symbol, price)
 
     def _on_bar(self, symbol: str, bar_data: BarData):
         """处理K线事件并直接执行策略"""
-        self.buffer.add_bar(bar_data)
-
-        # 直接执行策略处理
+        # 直接传递给策略引擎处理
         if symbol in self.strategy_engines:
             self._process_strategy(symbol, bar_data)
 
@@ -335,13 +271,13 @@ class AlpacaDataManager:
         """处理单个股票的策略逻辑"""
         strategy_engine = self.strategy_engines[symbol]
 
-        # 获取最新的K线数据
-        bars_df = self.get_realtime_bars(symbol, 50)
-        if len(bars_df) < 20:  # 数据不够，跳过
-            return
+        # 策略引擎自己管理数据缓存和处理
+        strategy_engine.process_new_bar(bar_data)
 
-        # 使用策略引擎处理新K线（策略引擎内部会处理信号）
-        strategy_engine.process_new_bar(bar_data, bars_df)
+    def _process_trade(self, symbol: str, price: float):
+        """处理交易数据"""
+        if symbol in self.strategy_engines:
+            self.strategy_engines[symbol].update_trade_price(price)
         
     def get_symbol_stream(self, symbol: str) -> Optional[SymbolDataStream]:
         """获取指定股票的数据流实例"""
@@ -382,18 +318,16 @@ class AlpacaDataManager:
 
         log.info("[STREAM] 已停止实时数据流")
 
-    # 数据访问接口
-    def get_realtime_bars(self, symbol: str, count: int = 50) -> pd.DataFrame:
-        """获取实时K线数据"""
-        return self.buffer.get_recent_bars(symbol, count)
-
+    # 数据访问接口（现在通过策略引擎获取）
     def get_current_price(self, symbol: str) -> Optional[float]:
         """获取当前价格"""
-        return self.buffer.get_current_price(symbol)
+        if symbol in self.strategy_engines:
+            return self.strategy_engines[symbol].get_current_price()
+        return None
 
 
 # ========================================
-# 7. 使用示例
+# 6. 使用示例
 # ========================================
 
 class TradingEngine:
