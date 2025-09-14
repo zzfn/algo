@@ -14,7 +14,6 @@ from utils.data_transforms import (
     alpaca_bar_to_bar_data,
     format_timestamp_to_et
 )
-from models.market_data import BarData
 from strategy.strategy_engine import StrategyEngine
 
 log = setup_logging()
@@ -43,26 +42,25 @@ class TradingEngine:
             url_override="wss://stream.data.alpaca.markets/v2/test" if self.config.is_test else None
         )
 
-    async def _on_trade_data(self, trade):
-        """处理交易数据"""
-        if trade.symbol in self.strategy_engines:
-            et_time = format_timestamp_to_et(trade.timestamp)
-            log.info(f"[TRADE] {trade.symbol} {et_time} ${trade.price}")
-            self.strategy_engines[trade.symbol].update_trade_price(float(trade.price))
-
-    async def _on_bar_data(self, bar):
-        """处理K线数据"""
-        if bar.symbol in self.strategy_engines:
-            bar_data = alpaca_bar_to_bar_data(bar)
-            log.info(f"[BAR] {bar.symbol} 收到K线数据: {bar_data}")
-            self.strategy_engines[bar.symbol].process_new_bar(bar_data)
 
     def start(self):
         """启动策略"""
         log.info("[ENGINE] 启动交易引擎...")
 
-        self.stream.subscribe_trades(self._on_trade_data, *self.symbols)
-        self.stream.subscribe_bars(self._on_bar_data, *self.symbols)
+        async def on_trade_data(trade):
+            if trade.symbol in self.strategy_engines:
+                et_time = format_timestamp_to_et(trade.timestamp)
+                log.info(f"[TRADE] {trade.symbol} {et_time} ${trade.price}")
+                self.strategy_engines[trade.symbol].update_trade_price(float(trade.price))
+
+        async def on_bar_data(bar):
+            if bar.symbol in self.strategy_engines:
+                bar_data = alpaca_bar_to_bar_data(bar)
+                log.info(f"[BAR] {bar.symbol} 收到K线数据: {bar_data}")
+                self.strategy_engines[bar.symbol].process_new_bar(bar_data)
+
+        self.stream.subscribe_trades(on_trade_data, *self.symbols)
+        self.stream.subscribe_bars(on_bar_data, *self.symbols)
 
         def run_stream():
             log.info(f"[STREAM] 启动Alpaca数据流，数据源: {self.config.data_feed}")
