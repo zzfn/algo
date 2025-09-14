@@ -90,22 +90,73 @@ class DataEvent:
 # 3. 实时数据流管理 (Real-time Data Stream)
 # ========================================
 
-class AlpacaDataStream:
+class SymbolDataStream:
+    """单个股票的数据流处理器"""
+    
+    def __init__(self, symbol: str, config: AlpacaConfig):
+        self.symbol = symbol
+        self.config = config
+        
+        # 该股票专属的回调处理器
+        self.on_trade_callback: Optional[Callable[[float, datetime], None]] = None
+        self.on_bar_callback: Optional[Callable[[BarData], None]] = None
+        self.on_error_callback: Optional[Callable[[str], None]] = None
+        
+        # 股票专属的数据缓存
+        self.latest_price: Optional[float] = None
+        self.latest_bar: Optional[BarData] = None
+        
+    def set_trade_callback(self, callback: Callable[[float, datetime], None]):
+        """设置交易数据回调"""
+        self.on_trade_callback = callback
+        
+    def set_bar_callback(self, callback: Callable[[BarData], None]):
+        """设置K线数据回调"""
+        self.on_bar_callback = callback
+        
+    def set_error_callback(self, callback: Callable[[str], None]):
+        """设置错误处理回调"""
+        self.on_error_callback = callback
+        
+    def handle_trade_data(self, price: float, timestamp: datetime):
+        """处理交易数据"""
+        self.latest_price = price
+        
+        # 转换为美东时间并格式化
+        et_time = arrow.get(timestamp).to('US/Eastern').format('YYYY-MM-DD HH:mm:ss.SSSSSS')
+        log.info(f"[TRADE] {self.symbol} {et_time} ${price}")
+        
+        if self.on_trade_callback:
+            try:
+                self.on_trade_callback(price, timestamp)
+            except Exception as e:
+                log.error(f"[ERROR] {self.symbol} 交易回调错误: {e}")
+                if self.on_error_callback:
+                    self.on_error_callback(str(e))
+                    
+    def handle_bar_data(self, bar_data: BarData):
+        """处理K线数据"""
+        self.latest_bar = bar_data
+        log.info(f"[BAR] {self.symbol} 收到K线数据: {bar_data}")
+        
+        if self.on_bar_callback:
+            try:
+                self.on_bar_callback(bar_data)
+            except Exception as e:
+                log.error(f"[ERROR] {self.symbol} K线回调错误: {e}")
+                if self.on_error_callback:
+                    self.on_error_callback(str(e))
+
+class AlpacaDataStreamManager:
     """
-    Alpaca实时数据流管理
-    使用alpaca-py的StockDataStream
+    Alpaca实时数据流管理器
+    管理所有股票的数据流实例
     """
 
     def __init__(self, config: AlpacaConfig):
         self.config = config
         self.stream = None
-        self.subscribed_symbols = set()
-
-        # 事件处理器
-        self.event_handlers: Dict[DataEventType, List[Callable]] = {
-            DataEventType.TRADE: [],
-            DataEventType.BAR: []
-        }
+        self.symbol_streams: Dict[str, SymbolDataStream] = {}
 
         # 初始化数据流
         self._init_stream()
@@ -119,73 +170,58 @@ class AlpacaDataStream:
             url_override="wss://stream.data.alpaca.markets/v2/test" if self.config.is_test else None
         )
 
-        # 数据处理器在订阅时设置
-
-    async def _on_trade_data(self, trade):
-        # 转换为美东时间并格式化
-        et_time = arrow.get(trade.timestamp).to('US/Eastern').format('YYYY-MM-DD HH:mm:ss.SSSSSS')
-        log.info(f"[TRADE] {trade.symbol} {et_time} ${trade.price}")
-        """处理交易数据 - 仅传递价格"""
-        # 直接创建简单的价格事件
-        event = DataEvent(
-            event_type=DataEventType.TRADE,
-            symbol=trade.symbol,
-            data=float(trade.price)  # 只传递价格
-        )
-
-        await self._dispatch_event(event)
-
-
-    async def _on_bar_data(self, bar):
-        """处理K线数据"""
-        bar_data = BarData(
-            symbol=bar.symbol,
-            timestamp=bar.timestamp,
-            open=float(bar.open),
-            high=float(bar.high),
-            low=float(bar.low),
-            close=float(bar.close),
-            volume=int(bar.volume),
-            vwap=float(bar.vwap) if bar.vwap else None,
-            trade_count=int(bar.trade_count) if bar.trade_count else None
-        )
-        log.info(f"[BAR] 收到K线数据: {bar_data}")
-        event = DataEvent(
-            event_type=DataEventType.BAR,
-            symbol=bar.symbol,
-            data=bar_data
-        )
-
-        await self._dispatch_event(event)
-
-    async def _dispatch_event(self, event: DataEvent):
-        """分发数据事件"""
-        handlers = self.event_handlers.get(event.event_type, [])
-        for handler in handlers:
-            try:
-                if asyncio.iscoroutinefunction(handler):
-                    await handler(event)
-                else:
-                    handler(event)
-            except Exception as e:
-                log.error(f"[ERROR] 事件处理器错误: {e}")
-
-    def register_handler(self, event_type: DataEventType, handler: Callable):
-        """注册事件处理器"""
-        self.event_handlers[event_type].append(handler)
-
-    def subscribe_symbols(self, symbols: List[str]):
-        """订阅股票数据"""
-        self.subscribed_symbols.update(symbols)
+    def add_symbol(self, symbol: str) -> SymbolDataStream:
+        """添加股票并返回其数据流实例"""
+        if symbol in self.symbol_streams:
+            return self.symbol_streams[symbol]
+            
+        symbol_stream = SymbolDataStream(symbol, self.config)
+        self.symbol_streams[symbol] = symbol_stream
         
-        # 为每个股票单独订阅数据流 - 始终启用 trades 和 bars
-        for symbol in symbols:
-            self.stream.subscribe_trades(self._on_trade_data, symbol)
-            self.stream.subscribe_bars(self._on_bar_data, symbol)
+        return symbol_stream
+        
+    def get_symbol_stream(self, symbol: str) -> Optional[SymbolDataStream]:
+        """获取指定股票的数据流实例"""
+        return self.symbol_streams.get(symbol)
+        
+    async def _on_trade_data(self, trade):
+        """全局交易数据处理器 - 分发到对应的股票实例"""
+        symbol_stream = self.symbol_streams.get(trade.symbol)
+        if symbol_stream:
+            symbol_stream.handle_trade_data(float(trade.price), trade.timestamp)
+        
+    async def _on_bar_data(self, bar):
+        """全局K线数据处理器 - 分发到对应的股票实例"""
+        symbol_stream = self.symbol_streams.get(bar.symbol)
+        if symbol_stream:
+            bar_data = BarData(
+                symbol=bar.symbol,
+                timestamp=bar.timestamp,
+                open=float(bar.open),
+                high=float(bar.high),
+                low=float(bar.low),
+                close=float(bar.close),
+                volume=int(bar.volume),
+                vwap=float(bar.vwap) if bar.vwap else None,
+                trade_count=int(bar.trade_count) if bar.trade_count else None
+            )
+            symbol_stream.handle_bar_data(bar_data)
+
+    def subscribe_symbols(self, symbol_list: List[str]) -> List[SymbolDataStream]:
+        """订阅多个股票数据，返回对应的数据流实例列表"""
+        # 首先为所有股票创建实例
+        symbol_streams = [self.add_symbol(symbol) for symbol in symbol_list]
+        
+        # 然后统一订阅 WebSocket 数据流（全局唯一连接）
+        self.stream.subscribe_trades(self._on_trade_data, *symbol_list)
+        self.stream.subscribe_bars(self._on_bar_data, *symbol_list)
+        
+        return symbol_streams
 
     def run(self):
         """启动数据流"""
         log.info(f"[STREAM] 启动Alpaca数据流，数据源: {self.config.data_feed}")
+        log.info(f"[STREAM] 已订阅股票: {list(self.symbol_streams.keys())}")
         try:
             self.stream.run()
         except Exception as e:
@@ -357,12 +393,22 @@ class AlpacaDataManager:
 
         # 初始化组件
         self.historical = AlpacaHistoricalData(config)
-        self.stream = AlpacaDataStream(config)
+        self.stream_manager = AlpacaDataStreamManager(config)
         self.buffer = RealTimeDataBuffer(config.buffer_size)
 
-        # 注册实时数据处理器
-        self.stream.register_handler(DataEventType.TRADE, self._on_trade)
-        self.stream.register_handler(DataEventType.BAR, self._on_bar)
+        # 为每个股票创建数据流实例并设置回调
+        self.symbol_streams: Dict[str, SymbolDataStream] = {}
+        for symbol in self.symbols:
+            symbol_stream = self.stream_manager.add_symbol(symbol)
+            self.symbol_streams[symbol] = symbol_stream
+            
+            # 设置每个股票的专属回调
+            symbol_stream.set_trade_callback(
+                lambda price, timestamp, s=symbol: self._on_trade(s, price, timestamp)
+            )
+            symbol_stream.set_bar_callback(
+                lambda bar_data, s=symbol: self._on_bar(s, bar_data)
+            )
 
         # 策略回调
         self.strategy_callbacks: List[Callable] = []
@@ -370,17 +416,14 @@ class AlpacaDataManager:
         # 数据流线程
         self.stream_thread = None
 
-    def _on_trade(self, event: DataEvent):
+    def _on_trade(self, symbol: str, price: float, timestamp: datetime):
         """处理交易事件 - 仅更新最新价格"""
-        if event.symbol in self.symbols:
-            self.buffer.update_latest_trade_price(event.symbol, event.data)
+        self.buffer.update_latest_trade_price(symbol, price)
 
-
-    def _on_bar(self, event: DataEvent):
+    def _on_bar(self, symbol: str, bar_data: BarData):
         """处理K线事件"""
-        if event.symbol in self.symbols:
-            self.buffer.add_bar(event.data)
-            self._trigger_strategy_callbacks(event.symbol, 'bar')
+        self.buffer.add_bar(bar_data)
+        self._trigger_strategy_callbacks(symbol, 'bar')
 
     def _trigger_strategy_callbacks(self, symbol: str, data_type: str):
         """触发策略回调"""
@@ -393,6 +436,10 @@ class AlpacaDataManager:
     def register_strategy_callback(self, callback: Callable):
         """注册策略回调"""
         self.strategy_callbacks.append(callback)
+        
+    def get_symbol_stream(self, symbol: str) -> Optional[SymbolDataStream]:
+        """获取指定股票的数据流实例"""
+        return self.symbol_streams.get(symbol)
 
     def load_historical_data(self, days: int = 30) -> Dict[str, pd.DataFrame]:
         """加载历史数据"""
@@ -408,11 +455,12 @@ class AlpacaDataManager:
 
     def start_stream(self):
         """启动实时数据流"""
+        # 先订阅所有股票
+        self.stream_manager.subscribe_symbols(self.symbols)
+        
         # 在单独线程中运行数据流
         def run_stream():
-            # 先订阅股票，再启动流
-            self.stream.subscribe_symbols(self.symbols)
-            self.stream.run()
+            self.stream_manager.run()
 
         self.stream_thread = threading.Thread(target=run_stream, daemon=False)
         self.stream_thread.start()
@@ -421,7 +469,7 @@ class AlpacaDataManager:
 
     def stop_stream(self):
         """停止实时数据流"""
-        self.stream.stop()
+        self.stream_manager.stop()
 
         if self.stream_thread:
             self.stream_thread.join(timeout=5)
