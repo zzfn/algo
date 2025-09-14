@@ -428,8 +428,8 @@ class AlpacaDataManager:
 # 7. 使用示例
 # ========================================
 
-class StrategyInterface:
-    """策略接口示例"""
+class TradingEngine:
+    """交易引擎 - 协调所有股票的数据管理和策略执行"""
 
     def __init__(self):
         # 自动加载所有配置
@@ -475,14 +475,14 @@ class StrategyInterface:
         self.data_manager.stop_stream()
 
 if __name__ == "__main__":
-    strategy = StrategyInterface()
+    engine = TradingEngine()
 
     try:
-        strategy.start()
+        engine.start()
 
         # 等待数据流线程结束（或 Ctrl+C 中断）
-        strategy.data_manager.stream_thread.join()
+        engine.data_manager.stream_thread.join()
 
     except KeyboardInterrupt:
-        log.info("[STRATEGY] 停止策略...")
-        strategy.stop()
+        log.info("[ENGINE] 停止交易引擎...")
+        engine.stop()
