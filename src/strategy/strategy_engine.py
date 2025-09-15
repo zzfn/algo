@@ -335,16 +335,8 @@ class StrategyEngine:
         log.info(f"[SIGNAL] {self.symbol}: {signal.signal_type}信号 "
                 f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
 
-        # 发布信号生成事件
-        event_bus.publish(EventTypes.SIGNAL_GENERATED, {
-            'symbol': signal.symbol,
-            'signal_type': signal.signal_type,
-            'price': signal.price,
-            'confidence': signal.confidence,
-            'reason': signal.reason,
-            'timestamp': signal.timestamp,
-            'executed': False
-        }, source='StrategyEngine')
+        # 使用装饰器发布信号事件
+        self._emit_signal_event(signal)
 
         # TODO: 在这里实现具体的交易执行逻辑
         # 例如：下单、仓位管理、风险控制等
