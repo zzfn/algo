@@ -1,8 +1,8 @@
 # 监控的股票代码列表
 symbols:
-  - AAPL
+  - SPY
+  - QQQ
   - TSLA
-  - LDI
+  - NVDA
   - GOOGL
-  - ATYR
   - ORCL
