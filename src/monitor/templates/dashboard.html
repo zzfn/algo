@@ -4,89 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>量化交易监控面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🚀 量化交易监控面板</h1>
-            <div class="status-bar">
-                <span id="system-status" class="status-indicator">启动中...</span>
-                <span id="last-update">最后更新: --</span>
-            </div>
-        </header>
-
-        <div class="dashboard-grid">
-            <!-- 系统概览 -->
-            <div class="card overview">
-                <h2>📊 系统概览</h2>
-                <div class="metrics">
-                    <div class="metric">
-                        <span class="metric-value" id="total-signals">--</span>
-                        <span class="metric-label">今日信号</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-value" id="active-positions">--</span>
-                        <span class="metric-label">活跃持仓</span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-value" id="daily-pnl">--</span>
-                        <span class="metric-label">今日PnL</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 连接状态 -->
-            <div class="card connections">
-                <h2>🔗 连接状态</h2>
-                <div class="connection-status">
-                    <div class="connection">
-                        <span id="data-feed-status" class="connection-indicator">●</span>
-                        <span>数据源</span>
-                    </div>
-                    <div class="connection">
-                        <span id="trading-api-status" class="connection-indicator">●</span>
-                        <span>交易API</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 系统性能 -->
-            <div class="card performance">
-                <h2>⚡ 系统性能</h2>
-                <div class="resource-usage">
-                    <div class="resource">
-                        <span>CPU使用率</span>
-                        <span id="cpu-usage">--%</span>
-                    </div>
-                    <div class="resource">
-                        <span>内存使用率</span>
-                        <span id="memory-usage">--%</span>
-                    </div>
-                    <div class="resource">
-                        <span>运行时间</span>
-                        <span id="uptime">--</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 股票状态 -->
-            <div class="card symbols">
-                <h2>📈 股票状态</h2>
-                <div id="symbols-list" class="symbols-list">
-                    <p>正在加载股票数据...</p>
-                </div>
-            </div>
-
-            <!-- 最新信号 -->
-            <div class="card signals">
-                <h2>🎯 最新信号</h2>
-                <div id="signals-list" class="signals-list">
-                    <p>正在加载信号数据...</p>
-                </div>
-            </div>
-        </div>
-    </div>
+    <div id="root"></div>
 
     <script src="/static/app.js"></script>
 </body>
