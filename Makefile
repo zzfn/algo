@@ -13,7 +13,7 @@ dev: install
 
 # Start trading engine
 run:
-	uv run python src/main.py
+	uv run src/main.py
 
 # Run tests
 test:
