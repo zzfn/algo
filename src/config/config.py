@@ -50,7 +50,7 @@ class TradingConfig:
             symbols=symbols,
             api_key=api_key,
             secret_key=secret_key,
-            is_test=True,  # 默认测试模式
+            is_test=False,  # 默认测试模式
             data_feed=DataFeed.IEX,  # 默认数据源
             buffer_size=1000  # 默认缓存大小
         )
