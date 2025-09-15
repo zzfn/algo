@@ -9,14 +9,15 @@ from typing import Optional, Dict, Any
 from collections import deque
 import threading
 
-from src.models.market_data import BarData
-from src.models.strategy_data import TradingSignal, MarketContext
-from src.utils.log import setup_logging
-from src.config.config import TradingConfig
+from models.market_data import BarData
+from models.strategy_data import TradingSignal, MarketContext
+from utils.log import setup_logging
+from config.config import TradingConfig
+from monitor.service import monitor
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from src.utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
+from utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
 
 log = setup_logging()
 
@@ -95,6 +96,15 @@ class StrategyEngine:
             # 1. 市场分析
             market_context = self._market_analysis(recent_bars, bar_data)
             self.current_context = market_context
+
+            # 同步市场分析结果到监控系统
+            monitor.update_symbol_status(
+                self.symbol,
+                trend=market_context.trend,
+                volatility=market_context.volatility,
+                volume_profile=market_context.volume_profile,
+                position_size=self.position_size
+            )
 
             # 2. 模式识别
             patterns = self._pattern_recognition(recent_bars, market_context)
