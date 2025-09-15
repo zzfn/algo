@@ -18,6 +18,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
+from .price_action_analyzer import PriceActionAnalyzer, PriceActionContext
 
 log = setup_logging()
 
@@ -43,11 +44,14 @@ class StrategyEngine:
         self.latest_bar: Optional[BarData] = None
         self.lock = threading.Lock()
 
+        # 价格行为分析器
+        self.price_action_analyzer = PriceActionAnalyzer()
+
         # 自动加载历史数据
         self._load_historical_data()
 
     def _load_historical_data(self, days: int = 30):
-        """自动加载历史数据"""
+        """自动加载历史数据到bar_buffer"""
         try:
             client = StockHistoricalDataClient(
                 api_key=self.config.api_key,
@@ -69,8 +73,23 @@ class StrategyEngine:
             symbol_bars = bars.data.get(self.symbol, [])
 
             if symbol_bars:
+                # 将历史数据转换为BarData对象并添加到buffer
+                for bar in symbol_bars:
+                    bar_data = BarData(
+                        symbol=self.symbol,
+                        timestamp=bar.timestamp,
+                        open=float(bar.open),
+                        high=float(bar.high),
+                        low=float(bar.low),
+                        close=float(bar.close),
+                        volume=int(bar.volume)
+                    )
+                    self.bar_buffer.append(bar_data)
+
+                log.info(f"[STRATEGY] {self.symbol}: 自动加载了{len(symbol_bars)}根历史K线到缓存")
+
+                # 保留DataFrame格式的历史数据作为备份（可选）
                 self.historical_data = alpaca_bars_to_dataframe(symbol_bars)
-                log.info(f"[STRATEGY] {self.symbol}: 自动加载了{len(self.historical_data)}根历史K线")
             else:
                 log.warning(f"[STRATEGY] {self.symbol}: 未获取到历史数据")
                 self.historical_data = pd.DataFrame()
@@ -126,7 +145,7 @@ class StrategyEngine:
 
 
     def _market_analysis(self, bars: pd.DataFrame, current_bar: BarData) -> MarketContext:
-        """2. 市场分析 - 分析当前市场状态"""
+        """基于Al Brooks价格行为学的市场分析"""
         if bars.empty or len(bars) < 20:
             return MarketContext(
                 symbol=self.symbol,
@@ -136,39 +155,80 @@ class StrategyEngine:
                 volume_profile="UNKNOWN"
             )
 
-        # 趋势分析（简化版）
-        ma20 = bars['close'].rolling(window=20).mean().iloc[-1]
-        current_price = current_bar.close
+        # 使用价格行为分析器获取市场背景
+        price_action_context = self.price_action_analyzer.analyze_market_context(bars, current_bar)
 
-        if current_price > ma20 * 1.02:
-            trend = "UPTREND"
-        elif current_price < ma20 * 0.98:
-            trend = "DOWNTREND"
-        else:
-            trend = "SIDEWAYS"
+        # 将价格行为分析结果转换为传统的MarketContext格式
+        trend = self._convert_market_structure_to_trend(price_action_context.market_structure)
 
-        # 波动率分析
-        returns = bars['close'].pct_change().dropna()
-        volatility = returns.std() * 100 if len(returns) > 0 else 0.0
+        # 基于趋势强度和K线质量计算波动率指标
+        volatility = self._calculate_price_action_volatility(price_action_context)
 
-        # 成交量分析
-        avg_volume = bars['volume'].rolling(window=10).mean().iloc[-1]
-        current_volume = current_bar.volume
+        # 成交量分析保持原有逻辑（暂时）
+        volume_profile = self._analyze_volume_profile(bars, current_bar)
 
-        if current_volume > avg_volume * 1.5:
-            volume_profile = "HIGH"
-        elif current_volume < avg_volume * 0.5:
-            volume_profile = "LOW"
-        else:
-            volume_profile = "NORMAL"
+        log.info(f"[PA_ANALYSIS] {self.symbol}: 市场结构={price_action_context.market_structure.value}, "
+                f"K线质量={price_action_context.bar_quality.value}, "
+                f"趋势强度={price_action_context.trend_strength:.2f}, "
+                f"关键位置={price_action_context.at_key_level}")
 
         return MarketContext(
             symbol=self.symbol,
-            current_price=current_price,
+            current_price=current_bar.close,
             trend=trend,
             volatility=volatility,
             volume_profile=volume_profile
         )
+
+    def _convert_market_structure_to_trend(self, market_structure) -> str:
+        """将市场结构转换为趋势字符串"""
+        from .price_action_analyzer import MarketStructure
+
+        if market_structure in [MarketStructure.STRONG_TREND_UP, MarketStructure.WEAK_TREND_UP]:
+            return "UPTREND"
+        elif market_structure in [MarketStructure.STRONG_TREND_DOWN, MarketStructure.WEAK_TREND_DOWN]:
+            return "DOWNTREND"
+        elif market_structure == MarketStructure.TRADING_RANGE:
+            return "SIDEWAYS"
+        elif market_structure == MarketStructure.BREAKOUT_ATTEMPT:
+            return "BREAKOUT"
+        else:
+            return "UNKNOWN"
+
+    def _calculate_price_action_volatility(self, context: PriceActionContext) -> float:
+        """基于价格行为背景计算波动率指标"""
+        # 基础波动率基于趋势强度
+        base_volatility = context.trend_strength * 3.0  # 将0-1转换为0-3%
+
+        # 根据K线质量调整
+        from .price_action_analyzer import BarQuality
+        if context.bar_quality in [BarQuality.STRONG_BULL, BarQuality.STRONG_BEAR]:
+            base_volatility *= 1.2  # 强势K线增加波动率
+        elif context.bar_quality == BarQuality.DOJI:
+            base_volatility *= 0.7  # 十字星降低波动率
+        elif context.bar_quality == BarQuality.REVERSAL:
+            base_volatility *= 1.5  # 反转K线增加波动率
+
+        # 在关键位置增加波动率
+        if context.at_key_level:
+            base_volatility *= 1.3
+
+        return min(base_volatility, 10.0)  # 限制最大波动率为10%
+
+    def _analyze_volume_profile(self, bars: pd.DataFrame, current_bar: BarData) -> str:
+        """分析成交量概况"""
+        if len(bars) < 10:
+            return "UNKNOWN"
+
+        avg_volume = bars['volume'].rolling(window=10).mean().iloc[-1]
+        current_volume = current_bar.volume
+
+        if current_volume > avg_volume * 1.5:
+            return "HIGH"
+        elif current_volume < avg_volume * 0.5:
+            return "LOW"
+        else:
+            return "NORMAL"
 
     def _pattern_recognition(self, bars: pd.DataFrame, context: MarketContext) -> Dict[str, Any]:
         """3. 模式识别 - Al Brooks价格行为模式"""
