@@ -1,6 +1,10 @@
 # 使用 python:3.11-slim 作为基础镜像
 FROM python:3.11-slim
 
+# 设置时区为中国标准时间
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # 复制 uv 二进制文件
 COPY --from=ghcr.io/astral-sh/uv:0.8.9 /uv /uvx /bin/
 
