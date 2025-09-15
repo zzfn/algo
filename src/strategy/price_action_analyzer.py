@@ -1,15 +1,16 @@
 """
-Al Brooks 价格行为分析器
-基于原生价格行为而非技术指标来分析市场
+纯函数版本的价格行为分析器
+基于 Al Brooks 价格行为学的无状态分析函数
 """
 
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
 from models.market_data import BarData
+from models.strategy_data import TradingSignal, MarketContext
 
 
 class BarQuality(Enum):
@@ -45,14 +46,20 @@ class PriceActionContext:
     consecutive_pattern: Optional[str]  # 连续K线模式
 
 
-class PriceActionAnalyzer:
-    """Al Brooks 价格行为分析器"""
+@dataclass
+class AnalysisState:
+    """分析状态数据结构"""
+    last_signal: Optional[TradingSignal]
+    position_size: float
+    current_context: Optional[MarketContext]
 
-    def __init__(self):
-        pass
 
-    def analyze_market_context(self, bars: pd.DataFrame, current_bar: BarData) -> PriceActionContext:
-        """分析当前市场的价格行为背景"""
+class PurePriceActionAnalyzer:
+    """纯函数版本的价格行为分析器"""
+
+    @staticmethod
+    def analyze_market_context(bars: pd.DataFrame, current_bar: BarData) -> PriceActionContext:
+        """纯函数：分析当前市场的价格行为背景"""
         if bars.empty or len(bars) < 5:
             return PriceActionContext(
                 symbol=current_bar.symbol,
@@ -65,21 +72,20 @@ class PriceActionAnalyzer:
                 consecutive_pattern=None
             )
 
-        # 如果数据不足但大于等于5根，尝试简单的价格趋势分析
+        # 分析市场结构和趋势强度
         if len(bars) < 10:
-            market_structure, trend_strength = self._simple_trend_analysis(bars, current_bar)
+            market_structure, trend_strength = PurePriceActionAnalyzer._simple_trend_analysis(bars, current_bar)
         else:
-            # 使用正常的市场结构分析
-            market_structure, trend_strength = self._analyze_market_structure(bars, current_bar)
+            market_structure, trend_strength = PurePriceActionAnalyzer._analyze_market_structure(bars, current_bar)
 
-        # 1. 分析当前K线质量
-        bar_quality = self._analyze_bar_quality(current_bar, bars)
+        # 分析当前K线质量
+        bar_quality = PurePriceActionAnalyzer._analyze_bar_quality(current_bar, bars)
 
-        # 3. 检查是否在关键位置
-        at_key_level, key_level_type = self._check_key_levels(bars, current_bar)
+        # 检查是否在关键位置
+        at_key_level, key_level_type = PurePriceActionAnalyzer._check_key_levels(bars, current_bar)
 
-        # 4. 分析连续K线模式
-        consecutive_pattern = self._analyze_consecutive_pattern(bars)
+        # 分析连续K线模式
+        consecutive_pattern = PurePriceActionAnalyzer._analyze_consecutive_pattern(bars)
 
         return PriceActionContext(
             symbol=current_bar.symbol,
@@ -92,7 +98,177 @@ class PriceActionAnalyzer:
             consecutive_pattern=consecutive_pattern
         )
 
-    def _analyze_bar_quality(self, current_bar: BarData, bars: pd.DataFrame) -> BarQuality:
+    @staticmethod
+    def market_analysis(bars: pd.DataFrame, current_bar: BarData) -> MarketContext:
+        """纯函数：基于Al Brooks价格行为学的市场分析"""
+        if bars.empty or len(bars) < 20:
+            return MarketContext(
+                symbol=current_bar.symbol,
+                current_price=current_bar.close,
+                trend="UNKNOWN",
+                volatility=0.0,
+                volume_profile="UNKNOWN"
+            )
+
+        # 使用价格行为分析获取市场背景
+        price_action_context = PurePriceActionAnalyzer.analyze_market_context(bars, current_bar)
+
+        # 将价格行为分析结果转换为传统的MarketContext格式
+        trend = PurePriceActionAnalyzer._convert_market_structure_to_trend(price_action_context.market_structure)
+
+        # 基于趋势强度和K线质量计算波动率指标
+        volatility = PurePriceActionAnalyzer._calculate_price_action_volatility(price_action_context)
+
+        # 成交量分析
+        volume_profile = PurePriceActionAnalyzer._analyze_volume_profile(bars, current_bar)
+
+        return MarketContext(
+            symbol=current_bar.symbol,
+            current_price=current_bar.close,
+            trend=trend,
+            volatility=volatility,
+            volume_profile=volume_profile
+        )
+
+    @staticmethod
+    def pattern_recognition(bars: pd.DataFrame, context: MarketContext) -> Dict[str, Any]:
+        """纯函数：模式识别 - Al Brooks价格行为模式"""
+        patterns = {}
+
+        if bars.empty or len(bars) < 10:
+            return patterns
+
+        # 简单的价格行为模式识别
+        recent_bars = bars.tail(5)
+
+        # 检测突破模式
+        high_break = context.current_price > recent_bars['high'].max()
+        low_break = context.current_price < recent_bars['low'].min()
+
+        patterns['breakout'] = {
+            'high_break': high_break,
+            'low_break': low_break,
+            'strength': context.volatility
+        }
+
+        # 检测反转模式（更严格的条件）
+        if len(recent_bars) >= 5:
+            last_5_closes = recent_bars['close'].tail(5)
+            # 需要更强的信号确认反转
+            strong_ascending = all(last_5_closes.iloc[i] < last_5_closes.iloc[i+1] for i in range(4))
+            strong_descending = all(last_5_closes.iloc[i] > last_5_closes.iloc[i+1] for i in range(4))
+
+            # 只有在强趋势中才考虑反转，弱趋势中的回调不算反转
+            is_strong_uptrend = context.trend == "UPTREND" and context.volatility > 2.0
+            is_strong_downtrend = context.trend == "DOWNTREND" and context.volatility > 2.0
+
+            patterns['reversal'] = {
+                'bullish_reversal': strong_ascending and is_strong_downtrend,
+                'bearish_reversal': strong_descending and is_strong_uptrend
+            }
+
+        return patterns
+
+    @staticmethod
+    def signal_generation(patterns: Dict[str, Any], context: MarketContext, bar: BarData) -> Optional[TradingSignal]:
+        """纯函数：信号生成"""
+        # 基于模式和市场背景生成信号
+        if 'breakout' in patterns:
+            breakout = patterns['breakout']
+
+            # 上涨突破信号
+            if (breakout['high_break'] and
+                context.trend in ["UPTREND", "SIDEWAYS"] and
+                context.volume_profile in ["HIGH", "NORMAL"] and
+                context.volatility > 1.0):
+
+                confidence = 0.8 if context.trend == "UPTREND" else 0.6
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="BUY",
+                    confidence=confidence,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="向上突破 + 上升趋势"
+                )
+
+            # 下跌突破信号
+            if (breakout['low_break'] and
+                context.trend in ["DOWNTREND", "SIDEWAYS"] and
+                context.volume_profile in ["HIGH", "NORMAL"] and
+                context.volatility > 1.0):
+
+                confidence = 0.8 if context.trend == "DOWNTREND" else 0.6
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="SELL",
+                    confidence=confidence,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="向下突破 + 下降趋势"
+                )
+
+        # 反转信号（只在强趋势中考虑）
+        if 'reversal' in patterns:
+            reversal = patterns['reversal']
+
+            if reversal.get('bullish_reversal', False):
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="BUY",
+                    confidence=0.7,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="强势看涨反转模式"
+                )
+
+            if reversal.get('bearish_reversal', False):
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="SELL",
+                    confidence=0.7,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="强势看跌反转模式"
+                )
+
+        return None
+
+    @staticmethod
+    def risk_management(signal: Optional[TradingSignal],
+                       context: MarketContext,
+                       last_signal: Optional[TradingSignal]) -> Optional[TradingSignal]:
+        """纯函数：风险管理 - 过滤和调整信号"""
+        if not signal:
+            return None
+
+        # 波动率过滤
+        if context.volatility > 5.0:
+            return None
+
+        # 成交量过滤
+        if context.volume_profile == "LOW":
+            # 创建新的信号对象，降低置信度
+            return TradingSignal(
+                symbol=signal.symbol,
+                signal_type=signal.signal_type,
+                confidence=signal.confidence * 0.7,
+                price=signal.price,
+                timestamp=signal.timestamp,
+                reason=signal.reason + " (成交量偏低)"
+            )
+
+        # 信号频率控制
+        if (last_signal and
+            signal.signal_type == last_signal.signal_type and
+            (signal.timestamp - last_signal.timestamp).total_seconds() < 300):
+            return None
+
+        return signal
+
+    # 私有辅助方法
+    @staticmethod
+    def _analyze_bar_quality(current_bar: BarData, bars: pd.DataFrame) -> BarQuality:
         """分析K线质量"""
         body = abs(current_bar.close - current_bar.open)
         total_range = current_bar.high - current_bar.low
@@ -118,7 +294,7 @@ class PriceActionAnalyzer:
             return BarQuality.DOJI
 
         # 反转K线判断
-        if self._is_reversal_bar(current_bar, bars):
+        if PurePriceActionAnalyzer._is_reversal_bar(current_bar, bars):
             return BarQuality.REVERSAL
 
         # 强弱K线判断
@@ -133,7 +309,8 @@ class PriceActionAnalyzer:
             else:
                 return BarQuality.WEAK_BEAR
 
-    def _is_reversal_bar(self, current_bar: BarData, bars: pd.DataFrame) -> bool:
+    @staticmethod
+    def _is_reversal_bar(current_bar: BarData, bars: pd.DataFrame) -> bool:
         """判断是否为反转K线"""
         if len(bars) < 3:
             return False
@@ -147,33 +324,36 @@ class PriceActionAnalyzer:
 
         if total_range > 0 and lower_shadow > body * 2 and body / total_range < 0.3:
             # 检查是否在下降趋势中
-            if self._is_in_downtrend(recent_bars):
+            if PurePriceActionAnalyzer._is_in_downtrend(recent_bars):
                 return True
 
         # 上吊线（上影线长，实体小，在上升趋势中）
         upper_shadow = current_bar.high - max(current_bar.open, current_bar.close)
         if total_range > 0 and upper_shadow > body * 2 and body / total_range < 0.3:
             # 检查是否在上升趋势中
-            if self._is_in_uptrend(recent_bars):
+            if PurePriceActionAnalyzer._is_in_uptrend(recent_bars):
                 return True
 
         return False
 
-    def _is_in_uptrend(self, bars: pd.DataFrame) -> bool:
+    @staticmethod
+    def _is_in_uptrend(bars: pd.DataFrame) -> bool:
         """判断是否处于上升趋势"""
         if len(bars) < 3:
             return False
         closes = bars['close'].values
         return closes[-1] > closes[-2] > closes[-3]
 
-    def _is_in_downtrend(self, bars: pd.DataFrame) -> bool:
+    @staticmethod
+    def _is_in_downtrend(bars: pd.DataFrame) -> bool:
         """判断是否处于下降趋势"""
         if len(bars) < 3:
             return False
         closes = bars['close'].values
         return closes[-1] < closes[-2] < closes[-3]
 
-    def _analyze_market_structure(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
+    @staticmethod
+    def _analyze_market_structure(bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
         """分析市场结构和趋势强度"""
         if len(bars) < 10:
             return MarketStructure.TRADING_RANGE, 0.0
@@ -183,9 +363,9 @@ class PriceActionAnalyzer:
         lows = bars['low'].values
         closes = bars['close'].values
 
-        # 获取最近的高低点（降低窗口要求）
-        recent_highs = self._find_local_peaks(highs[-20:], window=2)
-        recent_lows = self._find_local_valleys(lows[-20:], window=2)
+        # 获取最近的高低点
+        recent_highs = PurePriceActionAnalyzer._find_local_peaks(highs[-20:], window=2)
+        recent_lows = PurePriceActionAnalyzer._find_local_valleys(lows[-20:], window=2)
 
         # 判断趋势方向和强度
         if len(recent_highs) >= 2 and len(recent_lows) >= 2:
@@ -216,20 +396,18 @@ class PriceActionAnalyzer:
                 else:
                     return MarketStructure.WEAK_TREND_DOWN, trend_strength
             else:
-                # 当高低点模式不明确时，使用EMA20判断
-                return self._analyze_ema_trend(bars, current_bar)
+                return PurePriceActionAnalyzer._analyze_ema_trend(bars, current_bar)
         else:
-            # 当无法识别足够的高低点时，使用EMA20判断
-            return self._analyze_ema_trend(bars, current_bar)
+            return PurePriceActionAnalyzer._analyze_ema_trend(bars, current_bar)
 
-    def _find_local_peaks(self, data: List[float], window: int = 2) -> List[float]:
-        """寻找局部高点（优化版本）"""
+    @staticmethod
+    def _find_local_peaks(data: List[float], window: int = 2) -> List[float]:
+        """寻找局部高点"""
         peaks = []
         if len(data) < window * 2 + 1:
             return peaks
 
         for i in range(window, len(data) - window):
-            # 放宽条件：只需要比相邻点高即可
             is_peak = True
             for j in range(1, window + 1):
                 if data[i] < data[i-j] or data[i] < data[i+j]:
@@ -239,14 +417,14 @@ class PriceActionAnalyzer:
                 peaks.append(data[i])
         return peaks
 
-    def _find_local_valleys(self, data: List[float], window: int = 2) -> List[float]:
-        """寻找局部低点（优化版本）"""
+    @staticmethod
+    def _find_local_valleys(data: List[float], window: int = 2) -> List[float]:
+        """寻找局部低点"""
         valleys = []
         if len(data) < window * 2 + 1:
             return valleys
 
         for i in range(window, len(data) - window):
-            # 放宽条件：只需要比相邻点低即可
             is_valley = True
             for j in range(1, window + 1):
                 if data[i] > data[i-j] or data[i] > data[i+j]:
@@ -256,7 +434,8 @@ class PriceActionAnalyzer:
                 valleys.append(data[i])
         return valleys
 
-    def _check_key_levels(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[bool, Optional[str]]:
+    @staticmethod
+    def _check_key_levels(bars: pd.DataFrame, current_bar: BarData) -> Tuple[bool, Optional[str]]:
         """检查是否在关键支撑阻力位"""
         if len(bars) < 20:
             return False, None
@@ -268,8 +447,8 @@ class PriceActionAnalyzer:
         lows = bars['low'].values
 
         # 寻找最近20根K线的重要高低点
-        recent_highs = self._find_local_peaks(highs[-20:])
-        recent_lows = self._find_local_valleys(lows[-20:])
+        recent_highs = PurePriceActionAnalyzer._find_local_peaks(highs[-20:])
+        recent_lows = PurePriceActionAnalyzer._find_local_valleys(lows[-20:])
 
         # 检查当前价格是否接近这些关键位置
         tolerance = (max(highs[-20:]) - min(lows[-20:])) * 0.005  # 0.5%容差
@@ -284,7 +463,8 @@ class PriceActionAnalyzer:
 
         return False, None
 
-    def _analyze_consecutive_pattern(self, bars: pd.DataFrame) -> Optional[str]:
+    @staticmethod
+    def _analyze_consecutive_pattern(bars: pd.DataFrame) -> Optional[str]:
         """分析连续K线模式"""
         if len(bars) < 5:
             return None
@@ -308,8 +488,9 @@ class PriceActionAnalyzer:
 
         return None
 
-    def _analyze_ema_trend(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
-        """基于EMA20简单趋势判断：上方=涨，下方=跌，反复穿越=震荡"""
+    @staticmethod
+    def _analyze_ema_trend(bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
+        """基于EMA20简单趋势判断"""
         if len(bars) < 20:
             return MarketStructure.TRADING_RANGE, 0.0
 
@@ -319,22 +500,22 @@ class PriceActionAnalyzer:
         current_price = current_bar.close
         current_ema = ema20.iloc[-1]
 
-        # 检查最近几根K线是否反复穿越EMA20（震荡判断）
-        recent_crosses = self._count_ema_crosses(bars.tail(10), ema20.tail(10))
+        # 检查最近几根K线是否反复穿越EMA20
+        recent_crosses = PurePriceActionAnalyzer._count_ema_crosses(bars.tail(10), ema20.tail(10))
 
         # 计算价格偏离EMA的程度作为趋势强度
         price_deviation = abs(current_price - current_ema) / current_ema if current_ema > 0 else 0.0
-        trend_strength = min(price_deviation * 10, 1.0)  # 放大偏离度
+        trend_strength = min(price_deviation * 10, 1.0)
 
-        # 简单判断逻辑
-        if recent_crosses >= 3:  # 最近10根K线内穿越3次以上 = 震荡
+        # 判断逻辑
+        if recent_crosses >= 3:
             return MarketStructure.TRADING_RANGE, trend_strength
-        elif current_price > current_ema * 1.001:  # 价格明显高于EMA（0.1%以上）
+        elif current_price > current_ema * 1.001:
             if trend_strength > 0.5:
                 return MarketStructure.STRONG_TREND_UP, trend_strength
             else:
                 return MarketStructure.WEAK_TREND_UP, trend_strength
-        elif current_price < current_ema * 0.999:  # 价格明显低于EMA（0.1%以下）
+        elif current_price < current_ema * 0.999:
             if trend_strength > 0.5:
                 return MarketStructure.STRONG_TREND_DOWN, trend_strength
             else:
@@ -342,7 +523,8 @@ class PriceActionAnalyzer:
         else:
             return MarketStructure.TRADING_RANGE, trend_strength
 
-    def _count_ema_crosses(self, bars: pd.DataFrame, ema_values: pd.Series) -> int:
+    @staticmethod
+    def _count_ema_crosses(bars: pd.DataFrame, ema_values: pd.Series) -> int:
         """计算价格穿越EMA的次数"""
         if len(bars) < 2 or len(ema_values) < 2:
             return 0
@@ -352,40 +534,87 @@ class PriceActionAnalyzer:
         ema_vals = ema_values.values
 
         for i in range(1, len(closes)):
-            # 检查是否发生穿越：前一根在EMA下方，当前在上方（或反之）
             prev_above = closes[i-1] > ema_vals[i-1]
             curr_above = closes[i] > ema_vals[i]
 
-            if prev_above != curr_above:  # 发生穿越
+            if prev_above != curr_above:
                 crosses += 1
 
         return crosses
 
-    def _simple_trend_analysis(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
+    @staticmethod
+    def _simple_trend_analysis(bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
         """简单的价格趋势分析（当数据不足20根时使用）"""
         if len(bars) < 5:
             return MarketStructure.TRADING_RANGE, 0.0
 
-        # 如果有足够数据，尝试计算EMA10作为简化版本
         closes = bars['close']
         current_price = current_bar.close
 
         if len(bars) >= 10:
-            # 使用EMA10
             ema = closes.ewm(span=10).mean()
             current_ema = ema.iloc[-1]
         else:
-            # 使用简单移动平均
             current_ema = closes.mean()
 
         # 计算趋势强度
         price_deviation = abs(current_price - current_ema) / current_ema if current_ema > 0 else 0.0
         trend_strength = min(price_deviation * 10, 1.0)
 
-        # 简单判断：价格相对于均线的位置
-        if current_price > current_ema * 1.002:  # 0.2%以上
+        # 判断趋势
+        if current_price > current_ema * 1.002:
             return MarketStructure.WEAK_TREND_UP, trend_strength
-        elif current_price < current_ema * 0.998:  # 0.2%以下
+        elif current_price < current_ema * 0.998:
             return MarketStructure.WEAK_TREND_DOWN, trend_strength
         else:
             return MarketStructure.TRADING_RANGE, trend_strength
+
+    @staticmethod
+    def _convert_market_structure_to_trend(market_structure: MarketStructure) -> str:
+        """将市场结构转换为趋势字符串"""
+        if market_structure in [MarketStructure.STRONG_TREND_UP, MarketStructure.WEAK_TREND_UP]:
+            return "UPTREND"
+        elif market_structure in [MarketStructure.STRONG_TREND_DOWN, MarketStructure.WEAK_TREND_DOWN]:
+            return "DOWNTREND"
+        elif market_structure == MarketStructure.TRADING_RANGE:
+            return "SIDEWAYS"
+        elif market_structure == MarketStructure.BREAKOUT_ATTEMPT:
+            return "BREAKOUT"
+        else:
+            return "UNKNOWN"
+
+    @staticmethod
+    def _calculate_price_action_volatility(context: PriceActionContext) -> float:
+        """基于价格行为背景计算波动率指标"""
+        # 基础波动率基于趋势强度
+        base_volatility = context.trend_strength * 3.0
+
+        # 根据K线质量调整
+        if context.bar_quality in [BarQuality.STRONG_BULL, BarQuality.STRONG_BEAR]:
+            base_volatility *= 1.2
+        elif context.bar_quality == BarQuality.DOJI:
+            base_volatility *= 0.7
+        elif context.bar_quality == BarQuality.REVERSAL:
+            base_volatility *= 1.5
+
+        # 在关键位置增加波动率
+        if context.at_key_level:
+            base_volatility *= 1.3
+
+        return min(base_volatility, 10.0)
+
+    @staticmethod
+    def _analyze_volume_profile(bars: pd.DataFrame, current_bar: BarData) -> str:
+        """分析成交量概况"""
+        if len(bars) < 10:
+            return "UNKNOWN"
+
+        avg_volume = bars['volume'].rolling(window=10).mean().iloc[-1]
+        current_volume = current_bar.volume
+
+        if current_volume > avg_volume * 1.5:
+            return "HIGH"
+        elif current_volume < avg_volume * 0.5:
+            return "LOW"
+        else:
+            return "NORMAL"

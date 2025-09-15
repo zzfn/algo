@@ -18,7 +18,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
-from .price_action_analyzer import PriceActionAnalyzer, PriceActionContext
+from .price_action_analyzer import PurePriceActionAnalyzer, PriceActionContext, BarQuality, MarketStructure
 
 log = setup_logging()
 
@@ -44,8 +44,7 @@ class StrategyEngine:
         self.latest_bar: Optional[BarData] = None
         self.lock = threading.Lock()
 
-        # 价格行为分析器
-        self.price_action_analyzer = PriceActionAnalyzer()
+        # 注意：现在使用纯函数版本的价格行为分析器，无需实例化
 
         # 自动加载历史数据
         self._load_historical_data()
@@ -101,7 +100,7 @@ class StrategyEngine:
 
     def process_new_bar(self, bar_data: BarData) -> Optional[TradingSignal]:
         """
-        处理新的K线数据，执行完整的策略流水线
+        处理新的K线数据，执行完整的策略流水线（使用纯函数版本）
         """
         try:
             # 先添加新K线到缓存
@@ -112,21 +111,21 @@ class StrategyEngine:
             if len(recent_bars) < 20:  # 数据不够，跳过
                 return None
 
-            # 1. 市场分析
-            market_context = self._market_analysis(recent_bars, bar_data)
+            # 1. 市场分析（纯函数）
+            market_context = PurePriceActionAnalyzer.market_analysis(recent_bars, bar_data)
             self.current_context = market_context
 
             # 发布市场分析结果事件
             self._emit_market_analysis_update(market_context)
 
-            # 2. 模式识别
-            patterns = self._pattern_recognition(recent_bars, market_context)
+            # 2. 模式识别（纯函数）
+            patterns = PurePriceActionAnalyzer.pattern_recognition(recent_bars, market_context)
 
-            # 4. 信号生成
-            signal = self._signal_generation(patterns, market_context, bar_data)
+            # 4. 信号生成（纯函数）
+            signal = PurePriceActionAnalyzer.signal_generation(patterns, market_context, bar_data)
 
-            # 5. 风险管理
-            final_signal = self._risk_management(signal, market_context)
+            # 5. 风险管理（纯函数）
+            final_signal = PurePriceActionAnalyzer.risk_management(signal, market_context, self.last_signal)
 
             # 6. 执行决策
             if final_signal:
@@ -144,230 +143,12 @@ class StrategyEngine:
             return None
 
 
-    def _market_analysis(self, bars: pd.DataFrame, current_bar: BarData) -> MarketContext:
-        """基于Al Brooks价格行为学的市场分析"""
-        if bars.empty or len(bars) < 20:
-            return MarketContext(
-                symbol=self.symbol,
-                current_price=current_bar.close,
-                trend="UNKNOWN",
-                volatility=0.0,
-                volume_profile="UNKNOWN"
-            )
 
-        # 使用价格行为分析器获取市场背景
-        price_action_context = self.price_action_analyzer.analyze_market_context(bars, current_bar)
 
-        # 将价格行为分析结果转换为传统的MarketContext格式
-        trend = self._convert_market_structure_to_trend(price_action_context.market_structure)
 
-        # 基于趋势强度和K线质量计算波动率指标
-        volatility = self._calculate_price_action_volatility(price_action_context)
 
-        # 成交量分析保持原有逻辑（暂时）
-        volume_profile = self._analyze_volume_profile(bars, current_bar)
 
-        log.info(f"[PA_ANALYSIS] {self.symbol}: 市场结构={price_action_context.market_structure.value}, "
-                f"K线质量={price_action_context.bar_quality.value}, "
-                f"趋势强度={price_action_context.trend_strength:.2f}, "
-                f"关键位置={price_action_context.at_key_level}")
 
-        return MarketContext(
-            symbol=self.symbol,
-            current_price=current_bar.close,
-            trend=trend,
-            volatility=volatility,
-            volume_profile=volume_profile
-        )
-
-    def _convert_market_structure_to_trend(self, market_structure) -> str:
-        """将市场结构转换为趋势字符串"""
-        from .price_action_analyzer import MarketStructure
-
-        if market_structure in [MarketStructure.STRONG_TREND_UP, MarketStructure.WEAK_TREND_UP]:
-            return "UPTREND"
-        elif market_structure in [MarketStructure.STRONG_TREND_DOWN, MarketStructure.WEAK_TREND_DOWN]:
-            return "DOWNTREND"
-        elif market_structure == MarketStructure.TRADING_RANGE:
-            return "SIDEWAYS"
-        elif market_structure == MarketStructure.BREAKOUT_ATTEMPT:
-            return "BREAKOUT"
-        else:
-            return "UNKNOWN"
-
-    def _calculate_price_action_volatility(self, context: PriceActionContext) -> float:
-        """基于价格行为背景计算波动率指标"""
-        # 基础波动率基于趋势强度
-        base_volatility = context.trend_strength * 3.0  # 将0-1转换为0-3%
-
-        # 根据K线质量调整
-        from .price_action_analyzer import BarQuality
-        if context.bar_quality in [BarQuality.STRONG_BULL, BarQuality.STRONG_BEAR]:
-            base_volatility *= 1.2  # 强势K线增加波动率
-        elif context.bar_quality == BarQuality.DOJI:
-            base_volatility *= 0.7  # 十字星降低波动率
-        elif context.bar_quality == BarQuality.REVERSAL:
-            base_volatility *= 1.5  # 反转K线增加波动率
-
-        # 在关键位置增加波动率
-        if context.at_key_level:
-            base_volatility *= 1.3
-
-        return min(base_volatility, 10.0)  # 限制最大波动率为10%
-
-    def _analyze_volume_profile(self, bars: pd.DataFrame, current_bar: BarData) -> str:
-        """分析成交量概况"""
-        if len(bars) < 10:
-            return "UNKNOWN"
-
-        avg_volume = bars['volume'].rolling(window=10).mean().iloc[-1]
-        current_volume = current_bar.volume
-
-        if current_volume > avg_volume * 1.5:
-            return "HIGH"
-        elif current_volume < avg_volume * 0.5:
-            return "LOW"
-        else:
-            return "NORMAL"
-
-    def _pattern_recognition(self, bars: pd.DataFrame, context: MarketContext) -> Dict[str, Any]:
-        """3. 模式识别 - Al Brooks价格行为模式"""
-        patterns = {}
-
-        if bars.empty or len(bars) < 10:
-            return patterns
-
-        # 简单的价格行为模式识别
-        recent_bars = bars.tail(5)
-
-        # 检测突破模式
-        high_break = context.current_price > recent_bars['high'].max()
-        low_break = context.current_price < recent_bars['low'].min()
-
-        patterns['breakout'] = {
-            'high_break': high_break,
-            'low_break': low_break,
-            'strength': context.volatility
-        }
-
-        # 检测反转模式（更严格的条件）
-        if len(recent_bars) >= 5:
-            last_5_closes = recent_bars['close'].tail(5)
-            # 需要更强的信号确认反转
-            strong_ascending = all(last_5_closes.iloc[i] < last_5_closes.iloc[i+1] for i in range(4))
-            strong_descending = all(last_5_closes.iloc[i] > last_5_closes.iloc[i+1] for i in range(4))
-
-            # 只有在强趋势中才考虑反转，弱趋势中的回调不算反转
-            # 需要同时满足：强势连续K线 + 明确趋势 + 足够波动率 + 趋势强度
-            is_strong_uptrend = context.trend == "UPTREND" and getattr(context, 'volatility', 0) > 2.0
-            is_strong_downtrend = context.trend == "DOWNTREND" and getattr(context, 'volatility', 0) > 2.0
-
-            patterns['reversal'] = {
-                'bullish_reversal': strong_ascending and is_strong_downtrend,
-                'bearish_reversal': strong_descending and is_strong_uptrend
-            }
-
-        return patterns
-
-    def _signal_generation(self, patterns: Dict[str, Any], context: MarketContext, bar: BarData) -> Optional[TradingSignal]:
-        """4. 信号生成"""
-
-        # 基于模式和市场背景生成信号
-        if 'breakout' in patterns:
-            breakout = patterns['breakout']
-
-            # 上涨突破信号
-            if (breakout['high_break'] and
-                context.trend in ["UPTREND", "SIDEWAYS"] and
-                context.volume_profile in ["HIGH", "NORMAL"] and
-                context.volatility > 1.0):  # 需要足够的波动性
-
-                confidence = 0.8 if context.trend == "UPTREND" else 0.6
-                return TradingSignal(
-                    symbol=self.symbol,
-                    signal_type="BUY",
-                    confidence=confidence,
-                    price=bar.close,
-                    timestamp=bar.timestamp,
-                    reason="向上突破 + 上升趋势"
-                )
-
-            # 下跌突破信号
-            if (breakout['low_break'] and
-                context.trend in ["DOWNTREND", "SIDEWAYS"] and
-                context.volume_profile in ["HIGH", "NORMAL"] and
-                context.volatility > 1.0):  # 需要足够的波动性
-
-                confidence = 0.8 if context.trend == "DOWNTREND" else 0.6
-                return TradingSignal(
-                    symbol=self.symbol,
-                    signal_type="SELL",
-                    confidence=confidence,
-                    price=bar.close,
-                    timestamp=bar.timestamp,
-                    reason="向下突破 + 下降趋势"
-                )
-
-        # 反转信号（只在强趋势中考虑）
-        if 'reversal' in patterns:
-            reversal = patterns['reversal']
-
-            if reversal.get('bullish_reversal', False):
-                return TradingSignal(
-                    symbol=self.symbol,
-                    signal_type="BUY",
-                    confidence=0.7,
-                    price=bar.close,
-                    timestamp=bar.timestamp,
-                    reason="强势看涨反转模式"
-                )
-
-            if reversal.get('bearish_reversal', False):
-                return TradingSignal(
-                    symbol=self.symbol,
-                    signal_type="SELL",
-                    confidence=0.7,
-                    price=bar.close,
-                    timestamp=bar.timestamp,
-                    reason="强势看跌反转模式"
-                )
-
-        # 对于弱趋势，不生成反转信号，避免在正常回调中产生错误信号
-
-        return None
-
-    def _risk_management(self, signal: Optional[TradingSignal], context: MarketContext) -> Optional[TradingSignal]:
-        """5. 风险管理 - 过滤和调整信号"""
-        if not signal:
-            return None
-
-        # 波动率过滤
-        if context.volatility > 5.0:  # 5%以上波动率认为风险过高
-            log.info(f"[RISK] {self.symbol}: 波动率过高({context.volatility:.2f}%)，过滤信号")
-            return None
-
-        # 成交量过滤
-        if context.volume_profile == "LOW":
-            log.info(f"[RISK] {self.symbol}: 成交量过低，降低信号置信度")
-            # 创建新的信号对象，降低置信度
-            return TradingSignal(
-                symbol=signal.symbol,
-                signal_type=signal.signal_type,
-                confidence=signal.confidence * 0.7,  # 降低置信度
-                price=signal.price,
-                timestamp=signal.timestamp,
-                reason=signal.reason + " (成交量偏低)"
-            )
-
-        # 信号频率控制
-        if (self.last_signal and
-            signal.signal_type == self.last_signal.signal_type and
-            (signal.timestamp - self.last_signal.timestamp).seconds < 300):  # 5分钟内不重复同类信号
-
-            log.info(f"[RISK] {self.symbol}: 信号过于频繁，过滤重复信号")
-            return None
-
-        return signal
 
     @publish_event(EventTypes.MARKET_ANALYSIS_UPDATED, source='StrategyEngine')
     def _emit_market_analysis_update(self, market_context: MarketContext) -> Dict[str, Any]:
