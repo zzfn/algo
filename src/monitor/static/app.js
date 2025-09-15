@@ -60,112 +60,117 @@ function MonitorDashboard() {
 
     if (!snapshot) {
         return (
-            <div className="container">
+            <div className="max-w-7xl mx-auto p-5">
                 <div className="flex justify-center items-center h-screen">
-                    <div className="text-xl">正在加载监控数据...</div>
+                    <div className="text-xl text-gray-200">正在加载监控数据...</div>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="container">
+        <div className="max-w-7xl mx-auto p-5">
             {/* Header */}
-            <header>
-                <h1>🚀 量化交易监控面板</h1>
-                <div className="status-bar">
-                    <span className={`status-indicator ${snapshot.system_status.toLowerCase().replace(/[^a-z]/g, '')}`}>
+            <header className="bg-slate-800 rounded-xl p-5 mb-5 flex flex-col md:flex-row justify-between items-center gap-2.5">
+                <h1 className="text-slate-400 text-2xl font-semibold">🚀 量化交易监控面板</h1>
+                <div className="flex gap-5 items-center">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
+                        snapshot.system_status.toLowerCase().includes('running') ? 'bg-green-600' :
+                        snapshot.system_status.toLowerCase().includes('stopped') ? 'bg-red-600' :
+                        'bg-yellow-600'
+                    }`}>
                         {snapshot.system_status}
                     </span>
-                    <span>最后更新: {lastUpdate}</span>
+                    <span className="text-gray-300">最后更新: {lastUpdate}</span>
                 </div>
             </header>
 
             {/* Dashboard Grid */}
-            <div className="dashboard-grid">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {/* 系统概览 */}
-                <div className="card overview">
-                    <h2>📊 系统概览</h2>
-                    <div className="metrics">
-                        <div className="metric">
-                            <span className="metric-value">{snapshot.total_signals}</span>
-                            <span className="metric-label">今日信号</span>
+                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                    <h2 className="mb-4 text-red-400 text-lg font-semibold">📊 系统概览</h2>
+                    <div className="flex flex-col md:flex-row justify-around gap-2.5">
+                        <div className="text-center">
+                            <span className="block text-2xl font-bold text-green-600">{snapshot.total_signals}</span>
+                            <span className="block text-xs text-gray-400 mt-1">今日信号</span>
                         </div>
-                        <div className="metric">
-                            <span className="metric-value">{snapshot.active_positions}</span>
-                            <span className="metric-label">活跃持仓</span>
+                        <div className="text-center">
+                            <span className="block text-2xl font-bold text-green-600">{snapshot.active_positions}</span>
+                            <span className="block text-xs text-gray-400 mt-1">活跃持仓</span>
                         </div>
-                        <div className="metric">
-                            <span
-                                className="metric-value"
-                                style={{color: snapshot.daily_pnl >= 0 ? '#27ae60' : '#e74c3c'}}
-                            >
+                        <div className="text-center">
+                            <span className={`block text-2xl font-bold ${snapshot.daily_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 ${snapshot.daily_pnl.toFixed(2)}
                             </span>
-                            <span className="metric-label">今日PnL</span>
+                            <span className="block text-xs text-gray-400 mt-1">今日PnL</span>
                         </div>
                     </div>
                 </div>
 
                 {/* 连接状态 */}
-                <div className="card connections">
-                    <h2>🔗 连接状态</h2>
-                    <div className="connection-status">
-                        <div className="connection">
-                            <span className={`connection-indicator ${snapshot.data_feed_connected ? 'connected' : 'disconnected'}`}>
+                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                    <h2 className="mb-4 text-red-400 text-lg font-semibold">🔗 连接状态</h2>
+                    <div className="flex gap-5">
+                        <div className="flex items-center gap-2">
+                            <span className={`text-base ${snapshot.data_feed_connected ? 'text-green-600' : 'text-red-600'}`}>
                                 ●
                             </span>
-                            <span>数据源</span>
+                            <span className="text-gray-200">数据源</span>
                         </div>
-                        <div className="connection">
-                            <span className={`connection-indicator ${snapshot.trading_api_connected ? 'connected' : 'disconnected'}`}>
+                        <div className="flex items-center gap-2">
+                            <span className={`text-base ${snapshot.trading_api_connected ? 'text-green-600' : 'text-red-600'}`}>
                                 ●
                             </span>
-                            <span>交易API</span>
+                            <span className="text-gray-200">交易API</span>
                         </div>
                     </div>
                 </div>
 
                 {/* 系统性能 */}
-                <div className="card performance">
-                    <h2>⚡ 系统性能</h2>
-                    <div className="resource-usage">
-                        <div className="resource">
-                            <span>CPU使用率</span>
-                            <span>{snapshot.cpu_usage}%</span>
+                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                    <h2 className="mb-4 text-red-400 text-lg font-semibold">⚡ 系统性能</h2>
+                    <div className="flex flex-col gap-2.5">
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-200">CPU使用率</span>
+                            <span className="text-gray-200">{snapshot.cpu_usage}%</span>
                         </div>
-                        <div className="resource">
-                            <span>内存使用率</span>
-                            <span>{snapshot.memory_usage}%</span>
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-200">内存使用率</span>
+                            <span className="text-gray-200">{snapshot.memory_usage}%</span>
                         </div>
-                        <div className="resource">
-                            <span>运行时间</span>
-                            <span>{formatUptime(snapshot.uptime_seconds)}</span>
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-200">运行时间</span>
+                            <span className="text-gray-200">{formatUptime(snapshot.uptime_seconds)}</span>
                         </div>
                     </div>
                 </div>
 
                 {/* 股票状态 */}
-                <div className="card symbols">
-                    <h2>📈 股票状态</h2>
-                    <div className="symbols-list">
+                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                    <h2 className="mb-4 text-red-400 text-lg font-semibold">📈 股票状态</h2>
+                    <div className="max-h-72 overflow-y-auto">
                         {Object.keys(snapshot.symbols).length === 0 ? (
-                            <p>暂无股票数据</p>
+                            <p className="text-gray-400">暂无股票数据</p>
                         ) : (
                             Object.values(snapshot.symbols).map((symbol, index) => (
-                                <div key={index} className="symbol-item">
-                                    <div>
-                                        <span className="symbol-name">{symbol.symbol}</span>
-                                        <span className={`symbol-trend trend-${symbol.trend.toLowerCase()}`}>
+                                <div key={index} className="flex justify-between items-center p-2.5 border-b border-slate-700 bg-slate-700 mb-2 rounded-lg">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-red-400">{symbol.symbol}</span>
+                                        <span className={`text-xs px-1.5 py-0.5 rounded-lg text-white ${
+                                            symbol.trend.toLowerCase() === 'uptrend' ? 'bg-green-600' :
+                                            symbol.trend.toLowerCase() === 'downtrend' ? 'bg-red-600' :
+                                            'bg-yellow-600'
+                                        }`}>
                                             {symbol.trend}
                                         </span>
                                     </div>
-                                    <div>
-                                        <span className="symbol-price">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-green-600">
                                             ${symbol.current_price ? symbol.current_price.toFixed(2) : '--'}
                                         </span>
                                         {symbol.price_change_pct && (
-                                            <span style={{color: symbol.price_change_pct >= 0 ? '#27ae60' : '#e74c3c'}}>
+                                            <span className={symbol.price_change_pct >= 0 ? 'text-green-600' : 'text-red-600'}>
                                                 {symbol.price_change_pct.toFixed(2)}%
                                             </span>
                                         )}
@@ -177,23 +182,25 @@ function MonitorDashboard() {
                 </div>
 
                 {/* 最新信号 */}
-                <div className="card signals">
-                    <h2>🎯 最新信号</h2>
-                    <div className="signals-list">
+                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                    <h2 className="mb-4 text-red-400 text-lg font-semibold">🎯 最新信号</h2>
+                    <div className="max-h-72 overflow-y-auto">
                         {signals.length === 0 ? (
-                            <p>暂无信号数据</p>
+                            <p className="text-gray-400">暂无信号数据</p>
                         ) : (
                             signals.slice(0, 10).map((signal, index) => (
-                                <div key={index} className="signal-item">
-                                    <div className="signal-header">
-                                        <span className={`signal-type signal-${signal.signal_type.toLowerCase()}`}>
+                                <div key={index} className="p-2 border-b border-slate-700 text-xs">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className={`px-1.5 py-0.5 rounded text-white font-bold ${
+                                            signal.signal_type.toLowerCase() === 'buy' ? 'bg-green-600' : 'bg-red-600'
+                                        }`}>
                                             {signal.signal_type}
                                         </span>
-                                        <span>{signal.symbol}</span>
-                                        <span>${signal.price.toFixed(2)}</span>
-                                        <span>{new Date(signal.timestamp).toLocaleTimeString()}</span>
+                                        <span className="text-gray-200">{signal.symbol}</span>
+                                        <span className="text-gray-200">${signal.price.toFixed(2)}</span>
+                                        <span className="text-gray-200">{new Date(signal.timestamp).toLocaleTimeString()}</span>
                                     </div>
-                                    <div className="signal-reason">{signal.reason}</div>
+                                    <div className="text-gray-400 text-xs">{signal.reason}</div>
                                 </div>
                             ))
                         )}
