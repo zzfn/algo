@@ -78,10 +78,6 @@ class StrategyEngine:
             log.error(f"[STRATEGY] {self.symbol}: 加载历史数据失败: {e}")
             self.historical_data = pd.DataFrame()
 
-    def set_historical_data(self, historical_data: pd.DataFrame):
-        """设置历史数据用于初始化"""
-        self.historical_data = historical_data
-        log.info(f"[STRATEGY] {self.symbol}: 已加载{len(historical_data)}根历史K线")
 
     def process_new_bar(self, bar_data: BarData) -> Optional[TradingSignal]:
         """
