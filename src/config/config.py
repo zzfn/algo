@@ -7,6 +7,16 @@ import yaml
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from utils.log import setup_logging
+
+
+@dataclass
+class RedisConfig:
+    """Redis配置"""
+    host: str
+    port: int
+    password: str
+    db: int
 
 
 @dataclass
@@ -25,6 +35,9 @@ class TradingConfig:
     # 数据设置
     data_feed: DataFeed
     buffer_size: int
+
+    # Redis配置
+    redis: RedisConfig
 
     @classmethod
     def create(cls, config_path: str = None) -> 'TradingConfig':
@@ -46,11 +59,21 @@ class TradingConfig:
         api_key = os.getenv("ALPACA_API_KEY", "")
         secret_key = os.getenv("ALPACA_SECRET_KEY", "")
 
+        # 加载Redis配置
+        redis_config = config_data.get('redis', {})
+        redis = RedisConfig(
+            host=redis_config.get('host', 'localhost'),
+            port=redis_config.get('port', 6379),
+            password=redis_config.get('password', ''),
+            db=redis_config.get('db', 0)
+        )
+
         return cls(
             symbols=symbols,
             api_key=api_key,
             secret_key=secret_key,
             is_test=False,  # 默认测试模式
             data_feed=DataFeed.IEX,  # 默认数据源
-            buffer_size=1000  # 默认缓存大小
+            buffer_size=1000,  # 默认缓存大小
+            redis=redis
         )

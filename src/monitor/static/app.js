@@ -66,7 +66,7 @@ function MonitorDashboard() {
         <div className="max-w-7xl mx-auto p-5">
             {/* Header */}
             <header className="bg-slate-800 rounded-xl p-5 mb-5 flex flex-col md:flex-row justify-between items-center gap-2.5">
-                <h1 className="text-slate-400 text-2xl font-semibold">🚀 量化交易监控面板</h1>
+                <h1 className="text-slate-400 text-2xl font-semibold">🚀 Algo Copilot</h1>
                 <div className="flex gap-5 items-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
                         snapshot.system_status.toLowerCase().includes('running') ? 'bg-green-600' :

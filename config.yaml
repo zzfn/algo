@@ -6,3 +6,10 @@ symbols:
   - NVDA
   - GOOGL
   - ORCL
+
+# Redis 配置
+redis:
+  host: "redis.ooxo.cc"
+  port: 6379
+  password: "QEU7uqx"
+  db: 1
