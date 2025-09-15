@@ -13,7 +13,7 @@ from models.market_data import BarData
 from models.strategy_data import TradingSignal, MarketContext
 from utils.log import setup_logging
 from config.config import TradingConfig
-from utils.events import event_bus, EventTypes
+from utils.events import event_bus, EventTypes, publish_event
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -98,14 +98,7 @@ class StrategyEngine:
             self.current_context = market_context
 
             # 发布市场分析结果事件
-            event_bus.publish(EventTypes.MARKET_ANALYSIS_UPDATED, {
-                'symbol': self.symbol,
-                'trend': market_context.trend,
-                'volatility': market_context.volatility,
-                'volume_profile': market_context.volume_profile,
-                'position_size': self.position_size,
-                'current_price': market_context.current_price
-            }, source='StrategyEngine')
+            self._emit_market_analysis_update(market_context)
 
             # 2. 模式识别
             patterns = self._pattern_recognition(recent_bars, market_context)
@@ -303,6 +296,31 @@ class StrategyEngine:
             return None
 
         return signal
+
+    @publish_event(EventTypes.MARKET_ANALYSIS_UPDATED, source='StrategyEngine')
+    def _emit_market_analysis_update(self, market_context: MarketContext) -> Dict[str, Any]:
+        """发布市场分析更新事件（使用装饰器）"""
+        return {
+            'symbol': self.symbol,
+            'trend': market_context.trend,
+            'volatility': market_context.volatility,
+            'volume_profile': market_context.volume_profile,
+            'position_size': self.position_size,
+            'current_price': market_context.current_price
+        }
+
+    @publish_event(EventTypes.SIGNAL_GENERATED, source='StrategyEngine')
+    def _emit_signal_event(self, signal: TradingSignal) -> Dict[str, Any]:
+        """发布信号生成事件（使用装饰器）"""
+        return {
+            'symbol': signal.symbol,
+            'signal_type': signal.signal_type,
+            'price': signal.price,
+            'confidence': signal.confidence,
+            'reason': signal.reason,
+            'timestamp': signal.timestamp,
+            'executed': False
+        }
 
     def get_current_context(self) -> Optional[MarketContext]:
         """获取当前市场背景"""

@@ -121,6 +121,56 @@ def on_event(event_type: str, bus: EventBus = None):
     return decorator
 
 
+def publish_event(event_type: str, source: str = None, bus: EventBus = None, async_mode: bool = False):
+    """事件发布装饰器
+
+    使用示例:
+    @publish_event(EventTypes.MARKET_ANALYSIS_UPDATED, source='StrategyEngine')
+    def update_market_analysis(symbol: str, trend: str, volatility: float):
+        # 业务逻辑
+        return {
+            'symbol': symbol,
+            'trend': trend,
+            'volatility': volatility
+        }
+
+    # 调用时会自动发布事件，返回值作为事件数据
+    update_market_analysis('AAPL', 'UPTREND', 2.5)
+    """
+    if bus is None:
+        bus = event_bus
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # 执行原函数
+            result = func(*args, **kwargs)
+
+            # 如果有返回值，作为事件数据发布
+            if result is not None:
+                if async_mode:
+                    bus.publish_async(event_type, result, source)
+                else:
+                    bus.publish(event_type, result, source)
+
+            return result
+        return wrapper
+    return decorator
+
+
+def emit_event(event_type: str, source: str = None, bus: EventBus = None, async_mode: bool = False):
+    """更简洁的事件发布装饰器，可以传入额外数据
+
+    使用示例:
+    @emit_event(EventTypes.SIGNAL_GENERATED, source='StrategyEngine')
+    def generate_signal(self, signal_data):
+        # 业务逻辑
+        log.info(f"生成信号: {signal_data}")
+        # 返回要发布的事件数据
+        return signal_data
+    """
+    return publish_event(event_type, source, bus, async_mode)
+
+
 # 事件类型常量
 class EventTypes:
     """标准事件类型定义"""
