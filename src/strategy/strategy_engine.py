@@ -39,7 +39,6 @@ class StrategyEngine:
         # 实时数据缓存
         self.buffer_size = getattr(config, 'buffer_size', 1000) if config else 1000
         self.bar_buffer: deque = deque(maxlen=self.buffer_size)
-        self.latest_trade_price: Optional[float] = None
         self.latest_bar: Optional[BarData] = None
         self.lock = threading.Lock()
 
@@ -333,10 +332,6 @@ class StrategyEngine:
         # 例如：下单、仓位管理、风险控制等
         # 每个策略引擎可以有不同的执行逻辑
 
-    def update_trade_price(self, price: float):
-        """更新最新交易价格"""
-        with self.lock:
-            self.latest_trade_price = price
 
     def add_bar(self, bar: BarData):
         """添加新的K线数据到缓存"""
@@ -358,11 +353,7 @@ class StrategyEngine:
     def get_current_price(self) -> Optional[float]:
         """获取当前价格"""
         with self.lock:
-            # 优先使用最新交易价格
-            if self.latest_trade_price is not None:
-                return self.latest_trade_price
-
-            # 其次使用最新K线收盘价
+            # 使用最新K线收盘价
             if self.latest_bar is not None:
                 return self.latest_bar.close
 
