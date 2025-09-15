@@ -188,7 +188,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 class WebMonitorServer:
     """Web监控服务器管理器"""
 
-    def __init__(self, host: str = "localhost", port: int = 8080):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080):
         self.host = host
         self.port = port
         self.server = None
