@@ -44,12 +44,6 @@ function MonitorDashboard() {
         }
     };
 
-    // 格式化运行时间
-    const formatUptime = (seconds) => {
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        return `${hours}小时${minutes}分钟`;
-    };
 
     // 初始化和定时更新
     useEffect(() => {
@@ -86,7 +80,7 @@ function MonitorDashboard() {
             </header>
 
             {/* Dashboard Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
                 {/* 系统概览 */}
                 <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
                     <h2 className="mb-4 text-red-400 text-lg font-semibold">📊 系统概览</h2>
@@ -127,24 +121,6 @@ function MonitorDashboard() {
                     </div>
                 </div>
 
-                {/* 系统性能 */}
-                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
-                    <h2 className="mb-4 text-red-400 text-lg font-semibold">⚡ 系统性能</h2>
-                    <div className="flex flex-col gap-2.5">
-                        <div className="flex justify-between items-center">
-                            <span className="text-gray-200">CPU使用率</span>
-                            <span className="text-gray-200">{snapshot.cpu_usage}%</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-gray-200">内存使用率</span>
-                            <span className="text-gray-200">{snapshot.memory_usage}%</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-gray-200">运行时间</span>
-                            <span className="text-gray-200">{formatUptime(snapshot.uptime_seconds)}</span>
-                        </div>
-                    </div>
-                </div>
 
                 {/* 股票状态 */}
                 <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
@@ -156,7 +132,13 @@ function MonitorDashboard() {
                             Object.values(snapshot.symbols).map((symbol, index) => (
                                 <div key={index} className="flex justify-between items-center p-2.5 border-b border-slate-700 bg-slate-700 mb-2 rounded-lg">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-bold text-red-400">{symbol.symbol}</span>
+                                        <span
+                                            className="font-bold text-red-400 cursor-pointer hover:text-red-300 hover:underline transition-colors"
+                                            onClick={() => window.open(`https://www.futunn.com/stock/${symbol.symbol}-US`, '_blank')}
+                                            title={`点击查看 ${symbol.symbol} 详情`}
+                                        >
+                                            {symbol.symbol}
+                                        </span>
                                         <span className={`text-xs px-1.5 py-0.5 rounded-lg text-white ${
                                             symbol.trend.toLowerCase() === 'uptrend' ? 'bg-green-600' :
                                             symbol.trend.toLowerCase() === 'downtrend' ? 'bg-red-600' :
@@ -179,6 +161,46 @@ function MonitorDashboard() {
                             ))
                         )}
                     </div>
+                </div>
+
+                {/* 最活跃股票 */}
+                <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
+                    <h2 className="mb-4 text-red-400 text-lg font-semibold">🔥 最活跃股票</h2>
+                    <div className="max-h-72 overflow-y-auto">
+                        {(!snapshot.most_actives || snapshot.most_actives.stocks.length === 0) ? (
+                            <p className="text-gray-400">暂无活跃股票数据</p>
+                        ) : (
+                            snapshot.most_actives.stocks.map((stock, index) => (
+                                <div key={index} className="flex justify-between items-center p-2.5 border-b border-slate-700 bg-slate-700 mb-2 rounded-lg">
+                                    <div className="flex items-center gap-2">
+                                        <span
+                                            className="font-bold text-red-400 cursor-pointer hover:text-red-300 hover:underline transition-colors"
+                                            onClick={() => window.open(`https://www.futunn.com/stock/${stock.symbol}-US`, '_blank')}
+                                            title={`点击查看 ${stock.symbol} 详情`}
+                                        >
+                                            {stock.symbol}
+                                        </span>
+                                        <span className="text-xs text-gray-400">#{index + 1}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs">
+                                        <div className="text-center">
+                                            <div className="text-blue-400 font-bold">{(stock.volume / 1000000).toFixed(1)}M</div>
+                                            <div className="text-gray-400">成交量</div>
+                                        </div>
+                                        <div className="text-center">
+                                            <div className="text-green-400 font-bold">{(stock.trade_count / 1000).toFixed(1)}K</div>
+                                            <div className="text-gray-400">交易数</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    {snapshot.most_actives && (
+                        <div className="mt-3 text-xs text-gray-400 text-center">
+                            更新时间: {new Date(snapshot.most_actives.last_updated).toLocaleTimeString()}
+                        </div>
+                    )}
                 </div>
 
                 {/* 最新信号 */}

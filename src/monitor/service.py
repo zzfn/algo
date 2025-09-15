@@ -3,7 +3,6 @@
 """
 
 import time
-import psutil
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -11,10 +10,14 @@ from collections import deque
 
 from .data import (
     MonitorSnapshot, SymbolStatus, SignalHistory,
-    PerformanceMetrics, SystemHealth, SystemStatus
+    PerformanceMetrics, SystemHealth, SystemStatus,
+    ActiveStock, MostActives
 )
 from utils.log import setup_logging
 from utils.events import event_bus, EventTypes, Event
+from config.config import TradingConfig
+from alpaca.data.historical.screener import ScreenerClient
+from alpaca.data.requests import MostActivesRequest
 
 log = setup_logging()
 
@@ -46,6 +49,10 @@ class MonitorService:
         self.active_positions = 0
         self.daily_pnl = 0.0
 
+        # 活跃股票数据
+        self.most_actives: Optional[MostActives] = None
+        self.last_actives_update: Optional[datetime] = None
+
         # 连接状态
         self.data_feed_connected = False
         self.trading_api_connected = False
@@ -53,6 +60,18 @@ class MonitorService:
         # 错误计数
         self.error_count_today = 0
         self.warning_count_today = 0
+
+        # 初始化 Screener 客户端
+        try:
+            config = TradingConfig.create()
+            self.screener_client = ScreenerClient(
+                api_key=config.api_key,
+                secret_key=config.secret_key
+            )
+            log.info("[MONITOR] ScreenerClient 已初始化")
+        except Exception as e:
+            log.error(f"[MONITOR] ScreenerClient 初始化失败: {e}")
+            self.screener_client = None
 
         # 性能指标
         self.performance_metrics = PerformanceMetrics(
@@ -213,16 +232,53 @@ class MonitorService:
         """增加警告计数"""
         self.warning_count_today += 1
 
+    def fetch_most_actives(self, force_update: bool = False) -> Optional[MostActives]:
+        """获取最活跃股票（带缓存）"""
+        # 检查是否需要更新（每10分钟更新一次，除非强制更新）
+        if (not force_update and
+            self.last_actives_update and
+            (datetime.now() - self.last_actives_update).total_seconds() < 600):
+            return self.most_actives
+
+        if not self.screener_client:
+            log.warning("[MONITOR] ScreenerClient 未初始化，无法获取活跃股票")
+            return None
+
+        try:
+            # 创建请求参数：按交易次数排序，获取前10名
+            request_params = MostActivesRequest(
+                by='trades',
+                top=10
+            )
+
+            # 调用API获取活跃股票
+            alpaca_response = self.screener_client.get_most_actives(request_params)
+
+            # 转换为我们的数据模型
+            active_stocks = []
+            for stock in alpaca_response.most_actives:
+                active_stock = ActiveStock(
+                    symbol=stock.symbol,
+                    volume=stock.volume,
+                    trade_count=stock.trade_count
+                )
+                active_stocks.append(active_stock)
+
+            self.most_actives = MostActives(
+                last_updated=alpaca_response.last_updated,
+                stocks=active_stocks
+            )
+            self.last_actives_update = datetime.now()
+
+            log.info(f"[MONITOR] 已更新活跃股票列表，获取到 {len(active_stocks)} 只股票")
+            return self.most_actives
+
+        except Exception as e:
+            log.error(f"[MONITOR] 获取活跃股票失败: {e}")
+            return None
+
     def get_snapshot(self) -> MonitorSnapshot:
         """获取当前监控快照"""
-        # 计算系统运行时间
-        uptime = int((datetime.now() - self.start_time).total_seconds())
-
-        # 获取系统资源使用情况
-        cpu_usage = psutil.cpu_percent(interval=None)
-        memory_info = psutil.virtual_memory()
-        memory_usage = memory_info.percent
-
         # 计算活跃持仓数
         active_positions = sum(1 for status in self.symbol_status.values()
                              if status.position_size != 0)
@@ -230,18 +286,22 @@ class MonitorService:
         # 计算今日PnL
         daily_pnl = sum(status.unrealized_pnl for status in self.symbol_status.values())
 
+        # 获取活跃股票（如果缓存还有效就使用缓存）
+        most_actives = self.fetch_most_actives()
+
         return MonitorSnapshot(
             timestamp=datetime.now(),
             system_status=self.system_status,
             symbols=self.symbol_status.copy(),
+            most_actives=most_actives,
             total_signals=self.daily_signals,
             active_positions=active_positions,
             daily_pnl=daily_pnl,
             data_feed_connected=self.data_feed_connected,
             trading_api_connected=self.trading_api_connected,
-            cpu_usage=cpu_usage,
-            memory_usage=memory_usage,
-            uptime_seconds=uptime
+            cpu_usage=0.0,  # 不再使用，保留为兼容性
+            memory_usage=0.0,  # 不再使用，保留为兼容性
+            uptime_seconds=0  # 不再使用，保留为兼容性
         )
 
     def get_recent_signals(self, limit: int = 50) -> List[SignalHistory]:
@@ -263,17 +323,13 @@ class MonitorService:
         if last_data_time:
             data_stream_healthy = (datetime.now() - last_data_time) < timedelta(minutes=5)
 
-        # 获取系统资源
-        memory_info = psutil.virtual_memory()
-        disk_info = psutil.disk_usage('/')
-
         return SystemHealth(
             data_stream_healthy=data_stream_healthy,
             last_data_time=last_data_time,
             connection_errors=0,  # TODO: 实现连接错误计数
-            memory_usage_mb=memory_info.used / 1024 / 1024,
-            cpu_usage_pct=psutil.cpu_percent(interval=None),
-            disk_usage_pct=disk_info.percent,
+            memory_usage_mb=0.0,  # 不再监控，保留为兼容性
+            cpu_usage_pct=0.0,  # 不再监控，保留为兼容性
+            disk_usage_pct=0.0,  # 不再监控，保留为兼容性
             error_count_today=self.error_count_today,
             warning_count_today=self.warning_count_today
         )

@@ -250,15 +250,21 @@ class StrategyEngine:
             'strength': context.volatility
         }
 
-        # 检测反转模式（简化）
-        if len(recent_bars) >= 3:
-            last_3_closes = recent_bars['close'].tail(3)
-            ascending = all(last_3_closes.iloc[i] < last_3_closes.iloc[i+1] for i in range(2))
-            descending = all(last_3_closes.iloc[i] > last_3_closes.iloc[i+1] for i in range(2))
+        # 检测反转模式（更严格的条件）
+        if len(recent_bars) >= 5:
+            last_5_closes = recent_bars['close'].tail(5)
+            # 需要更强的信号确认反转
+            strong_ascending = all(last_5_closes.iloc[i] < last_5_closes.iloc[i+1] for i in range(4))
+            strong_descending = all(last_5_closes.iloc[i] > last_5_closes.iloc[i+1] for i in range(4))
+
+            # 只有在强趋势中才考虑反转，弱趋势中的回调不算反转
+            # 需要同时满足：强势连续K线 + 明确趋势 + 足够波动率 + 趋势强度
+            is_strong_uptrend = context.trend == "UPTREND" and getattr(context, 'volatility', 0) > 2.0
+            is_strong_downtrend = context.trend == "DOWNTREND" and getattr(context, 'volatility', 0) > 2.0
 
             patterns['reversal'] = {
-                'bullish_reversal': ascending and context.trend == "DOWNTREND",
-                'bearish_reversal': descending and context.trend == "UPTREND"
+                'bullish_reversal': strong_ascending and is_strong_downtrend,
+                'bearish_reversal': strong_descending and is_strong_uptrend
             }
 
         return patterns
@@ -273,12 +279,14 @@ class StrategyEngine:
             # 上涨突破信号
             if (breakout['high_break'] and
                 context.trend in ["UPTREND", "SIDEWAYS"] and
-                context.volume_profile in ["HIGH", "NORMAL"]):
+                context.volume_profile in ["HIGH", "NORMAL"] and
+                context.volatility > 1.0):  # 需要足够的波动性
 
+                confidence = 0.8 if context.trend == "UPTREND" else 0.6
                 return TradingSignal(
                     symbol=self.symbol,
                     signal_type="BUY",
-                    confidence=0.7,
+                    confidence=confidence,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向上突破 + 上升趋势"
@@ -287,18 +295,20 @@ class StrategyEngine:
             # 下跌突破信号
             if (breakout['low_break'] and
                 context.trend in ["DOWNTREND", "SIDEWAYS"] and
-                context.volume_profile in ["HIGH", "NORMAL"]):
+                context.volume_profile in ["HIGH", "NORMAL"] and
+                context.volatility > 1.0):  # 需要足够的波动性
 
+                confidence = 0.8 if context.trend == "DOWNTREND" else 0.6
                 return TradingSignal(
                     symbol=self.symbol,
                     signal_type="SELL",
-                    confidence=0.7,
+                    confidence=confidence,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向下突破 + 下降趋势"
                 )
 
-        # 反转信号
+        # 反转信号（只在强趋势中考虑）
         if 'reversal' in patterns:
             reversal = patterns['reversal']
 
@@ -306,21 +316,23 @@ class StrategyEngine:
                 return TradingSignal(
                     symbol=self.symbol,
                     signal_type="BUY",
-                    confidence=0.6,
+                    confidence=0.7,
                     price=bar.close,
                     timestamp=bar.timestamp,
-                    reason="看涨反转模式"
+                    reason="强势看涨反转模式"
                 )
 
             if reversal.get('bearish_reversal', False):
                 return TradingSignal(
                     symbol=self.symbol,
                     signal_type="SELL",
-                    confidence=0.6,
+                    confidence=0.7,
                     price=bar.close,
                     timestamp=bar.timestamp,
-                    reason="看跌反转模式"
+                    reason="强势看跌反转模式"
                 )
+
+        # 对于弱趋势，不生成反转信号，避免在正常回调中产生错误信号
 
         return None
 

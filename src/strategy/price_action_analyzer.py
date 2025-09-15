@@ -53,7 +53,7 @@ class PriceActionAnalyzer:
 
     def analyze_market_context(self, bars: pd.DataFrame, current_bar: BarData) -> PriceActionContext:
         """分析当前市场的价格行为背景"""
-        if bars.empty or len(bars) < 10:
+        if bars.empty or len(bars) < 5:
             return PriceActionContext(
                 symbol=current_bar.symbol,
                 current_price=current_bar.close,
@@ -65,11 +65,15 @@ class PriceActionAnalyzer:
                 consecutive_pattern=None
             )
 
+        # 如果数据不足但大于等于5根，尝试简单的价格趋势分析
+        if len(bars) < 10:
+            market_structure, trend_strength = self._simple_trend_analysis(bars, current_bar)
+        else:
+            # 使用正常的市场结构分析
+            market_structure, trend_strength = self._analyze_market_structure(bars, current_bar)
+
         # 1. 分析当前K线质量
         bar_quality = self._analyze_bar_quality(current_bar, bars)
-
-        # 2. 分析市场结构
-        market_structure, trend_strength = self._analyze_market_structure(bars, current_bar)
 
         # 3. 检查是否在关键位置
         at_key_level, key_level_type = self._check_key_levels(bars, current_bar)
@@ -171,7 +175,7 @@ class PriceActionAnalyzer:
 
     def _analyze_market_structure(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
         """分析市场结构和趋势强度"""
-        if len(bars) < 20:
+        if len(bars) < 10:
             return MarketStructure.TRADING_RANGE, 0.0
 
         # 分析高点低点序列
@@ -179,9 +183,9 @@ class PriceActionAnalyzer:
         lows = bars['low'].values
         closes = bars['close'].values
 
-        # 获取最近的高低点
-        recent_highs = self._find_local_peaks(highs[-20:])
-        recent_lows = self._find_local_valleys(lows[-20:])
+        # 获取最近的高低点（降低窗口要求）
+        recent_highs = self._find_local_peaks(highs[-20:], window=2)
+        recent_lows = self._find_local_valleys(lows[-20:], window=2)
 
         # 判断趋势方向和强度
         if len(recent_highs) >= 2 and len(recent_lows) >= 2:
@@ -212,25 +216,43 @@ class PriceActionAnalyzer:
                 else:
                     return MarketStructure.WEAK_TREND_DOWN, trend_strength
             else:
-                return MarketStructure.TRADING_RANGE, trend_strength
+                # 当高低点模式不明确时，使用EMA20判断
+                return self._analyze_ema_trend(bars, current_bar)
+        else:
+            # 当无法识别足够的高低点时，使用EMA20判断
+            return self._analyze_ema_trend(bars, current_bar)
 
-        return MarketStructure.TRADING_RANGE, 0.0
-
-    def _find_local_peaks(self, data: List[float], window: int = 3) -> List[float]:
-        """寻找局部高点"""
+    def _find_local_peaks(self, data: List[float], window: int = 2) -> List[float]:
+        """寻找局部高点（优化版本）"""
         peaks = []
+        if len(data) < window * 2 + 1:
+            return peaks
+
         for i in range(window, len(data) - window):
-            if all(data[i] >= data[i-j] for j in range(1, window+1)) and \
-               all(data[i] >= data[i+j] for j in range(1, window+1)):
+            # 放宽条件：只需要比相邻点高即可
+            is_peak = True
+            for j in range(1, window + 1):
+                if data[i] < data[i-j] or data[i] < data[i+j]:
+                    is_peak = False
+                    break
+            if is_peak:
                 peaks.append(data[i])
         return peaks
 
-    def _find_local_valleys(self, data: List[float], window: int = 3) -> List[float]:
-        """寻找局部低点"""
+    def _find_local_valleys(self, data: List[float], window: int = 2) -> List[float]:
+        """寻找局部低点（优化版本）"""
         valleys = []
+        if len(data) < window * 2 + 1:
+            return valleys
+
         for i in range(window, len(data) - window):
-            if all(data[i] <= data[i-j] for j in range(1, window+1)) and \
-               all(data[i] <= data[i+j] for j in range(1, window+1)):
+            # 放宽条件：只需要比相邻点低即可
+            is_valley = True
+            for j in range(1, window + 1):
+                if data[i] > data[i-j] or data[i] > data[i+j]:
+                    is_valley = False
+                    break
+            if is_valley:
                 valleys.append(data[i])
         return valleys
 
@@ -285,3 +307,85 @@ class PriceActionAnalyzer:
                 return "three_bear"
 
         return None
+
+    def _analyze_ema_trend(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
+        """基于EMA20简单趋势判断：上方=涨，下方=跌，反复穿越=震荡"""
+        if len(bars) < 20:
+            return MarketStructure.TRADING_RANGE, 0.0
+
+        # 计算EMA20
+        closes = bars['close']
+        ema20 = closes.ewm(span=20).mean()
+        current_price = current_bar.close
+        current_ema = ema20.iloc[-1]
+
+        # 检查最近几根K线是否反复穿越EMA20（震荡判断）
+        recent_crosses = self._count_ema_crosses(bars.tail(10), ema20.tail(10))
+
+        # 计算价格偏离EMA的程度作为趋势强度
+        price_deviation = abs(current_price - current_ema) / current_ema if current_ema > 0 else 0.0
+        trend_strength = min(price_deviation * 10, 1.0)  # 放大偏离度
+
+        # 简单判断逻辑
+        if recent_crosses >= 3:  # 最近10根K线内穿越3次以上 = 震荡
+            return MarketStructure.TRADING_RANGE, trend_strength
+        elif current_price > current_ema * 1.001:  # 价格明显高于EMA（0.1%以上）
+            if trend_strength > 0.5:
+                return MarketStructure.STRONG_TREND_UP, trend_strength
+            else:
+                return MarketStructure.WEAK_TREND_UP, trend_strength
+        elif current_price < current_ema * 0.999:  # 价格明显低于EMA（0.1%以下）
+            if trend_strength > 0.5:
+                return MarketStructure.STRONG_TREND_DOWN, trend_strength
+            else:
+                return MarketStructure.WEAK_TREND_DOWN, trend_strength
+        else:
+            return MarketStructure.TRADING_RANGE, trend_strength
+
+    def _count_ema_crosses(self, bars: pd.DataFrame, ema_values: pd.Series) -> int:
+        """计算价格穿越EMA的次数"""
+        if len(bars) < 2 or len(ema_values) < 2:
+            return 0
+
+        crosses = 0
+        closes = bars['close'].values
+        ema_vals = ema_values.values
+
+        for i in range(1, len(closes)):
+            # 检查是否发生穿越：前一根在EMA下方，当前在上方（或反之）
+            prev_above = closes[i-1] > ema_vals[i-1]
+            curr_above = closes[i] > ema_vals[i]
+
+            if prev_above != curr_above:  # 发生穿越
+                crosses += 1
+
+        return crosses
+
+    def _simple_trend_analysis(self, bars: pd.DataFrame, current_bar: BarData) -> Tuple[MarketStructure, float]:
+        """简单的价格趋势分析（当数据不足20根时使用）"""
+        if len(bars) < 5:
+            return MarketStructure.TRADING_RANGE, 0.0
+
+        # 如果有足够数据，尝试计算EMA10作为简化版本
+        closes = bars['close']
+        current_price = current_bar.close
+
+        if len(bars) >= 10:
+            # 使用EMA10
+            ema = closes.ewm(span=10).mean()
+            current_ema = ema.iloc[-1]
+        else:
+            # 使用简单移动平均
+            current_ema = closes.mean()
+
+        # 计算趋势强度
+        price_deviation = abs(current_price - current_ema) / current_ema if current_ema > 0 else 0.0
+        trend_strength = min(price_deviation * 10, 1.0)
+
+        # 简单判断：价格相对于均线的位置
+        if current_price > current_ema * 1.002:  # 0.2%以上
+            return MarketStructure.WEAK_TREND_UP, trend_strength
+        elif current_price < current_ema * 0.998:  # 0.2%以下
+            return MarketStructure.WEAK_TREND_DOWN, trend_strength
+        else:
+            return MarketStructure.TRADING_RANGE, trend_strength

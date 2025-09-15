@@ -36,6 +36,9 @@ class MonitorSnapshot:
     memory_usage: float
     uptime_seconds: int
 
+    # 可选字段（带默认值的必须放在最后）
+    most_actives: Optional['MostActives'] = None  # 最活跃股票
+
 @dataclass
 class SymbolStatus:
     """单个股票的状态"""
@@ -98,3 +101,17 @@ class SystemHealth:
     disk_usage_pct: float
     error_count_today: int
     warning_count_today: int
+
+@dataclass
+class ActiveStock:
+    """活跃股票信息"""
+    symbol: str
+    volume: int
+    trade_count: int
+    change_percent: Optional[float] = None  # 添加涨跌幅信息
+
+@dataclass
+class MostActives:
+    """最活跃股票列表"""
+    last_updated: datetime
+    stocks: List[ActiveStock]

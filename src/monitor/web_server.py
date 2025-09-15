@@ -108,7 +108,7 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
 
     def _serialize_snapshot(self, snapshot) -> Dict[str, Any]:
         """序列化监控快照"""
-        return {
+        result = {
             "timestamp": snapshot.timestamp.isoformat(),
             "system_status": snapshot.system_status.value,
             "total_signals": snapshot.total_signals,
@@ -124,6 +124,12 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
                 for symbol, status in snapshot.symbols.items()
             }
         }
+
+        # 添加活跃股票数据
+        if snapshot.most_actives:
+            result["most_actives"] = self._serialize_most_actives(snapshot.most_actives)
+
+        return result
 
     def _serialize_symbol_status(self, status) -> Dict[str, Any]:
         """序列化股票状态"""
@@ -168,6 +174,21 @@ class MonitorHTTPHandler(BaseHTTPRequestHandler):
             "disk_usage_pct": round(health.disk_usage_pct, 2),
             "error_count_today": health.error_count_today,
             "warning_count_today": health.warning_count_today
+        }
+
+    def _serialize_most_actives(self, most_actives) -> Dict[str, Any]:
+        """序列化最活跃股票"""
+        return {
+            "last_updated": most_actives.last_updated.isoformat(),
+            "stocks": [
+                {
+                    "symbol": stock.symbol,
+                    "volume": stock.volume,
+                    "trade_count": stock.trade_count,
+                    "change_percent": stock.change_percent
+                }
+                for stock in most_actives.stocks
+            ]
         }
 
     def _get_dashboard_html(self) -> str:
