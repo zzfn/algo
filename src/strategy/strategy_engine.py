@@ -1,6 +1,6 @@
 """
 策略引擎 - 协调单个股票的策略流水线
-处理：清洗处理 → 市场分析 → 模式识别 → 信号生成 → 风险管理 → 执行
+处理：市场分析 → 模式识别 → 信号生成 → 风险管理 → 执行
 """
 
 import pandas as pd
@@ -9,14 +9,14 @@ from typing import Optional, Dict, Any
 from collections import deque
 import threading
 
-from models.market_data import BarData
-from models.strategy_data import TradingSignal, MarketContext
-from utils.log import setup_logging
-from config.config import TradingConfig
+from src.models.market_data import BarData
+from src.models.strategy_data import TradingSignal, MarketContext
+from src.utils.log import setup_logging
+from src.config.config import TradingConfig
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
+from src.utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
 
 log = setup_logging()
 
@@ -96,15 +96,12 @@ class StrategyEngine:
             if len(recent_bars) < 20:  # 数据不够，跳过
                 return None
 
-            # 1. 数据清洗处理
-            cleaned_data = self._data_cleaning(recent_bars)
-
-            # 2. 市场分析
-            market_context = self._market_analysis(cleaned_data, bar_data)
+            # 1. 市场分析
+            market_context = self._market_analysis(recent_bars, bar_data)
             self.current_context = market_context
 
-            # 3. 模式识别
-            patterns = self._pattern_recognition(cleaned_data, market_context)
+            # 2. 模式识别
+            patterns = self._pattern_recognition(recent_bars, market_context)
 
             # 4. 信号生成
             signal = self._signal_generation(patterns, market_context, bar_data)
@@ -127,21 +124,6 @@ class StrategyEngine:
             log.error(f"[STRATEGY] {self.symbol} 策略处理错误: {e}")
             return None
 
-    def _data_cleaning(self, bars: pd.DataFrame) -> pd.DataFrame:
-        """1. 数据清洗处理"""
-        if bars.empty:
-            return bars
-
-        # 基本的数据清洗
-        cleaned = bars.copy()
-
-        # 移除异常值（简单示例）
-        if len(cleaned) > 1:
-            # 移除价格跳跃超过10%的异常K线
-            price_change = cleaned['close'].pct_change().abs()
-            cleaned = cleaned[price_change <= 0.1]
-
-        return cleaned
 
     def _market_analysis(self, bars: pd.DataFrame, current_bar: BarData) -> MarketContext:
         """2. 市场分析 - 分析当前市场状态"""

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Optional, Any
 import arrow
 
-from models.market_data import BarData
+from src.models.market_data import BarData
 
 
 def alpaca_bar_to_bar_data(bar: Any) -> BarData:
