@@ -13,7 +13,7 @@ from models.market_data import BarData
 from models.strategy_data import TradingSignal, MarketContext
 from utils.log import setup_logging
 from config.config import TradingConfig
-from monitor.service import monitor
+from utils.events import event_bus, EventTypes
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -97,14 +97,15 @@ class StrategyEngine:
             market_context = self._market_analysis(recent_bars, bar_data)
             self.current_context = market_context
 
-            # 同步市场分析结果到监控系统
-            monitor.update_symbol_status(
-                self.symbol,
-                trend=market_context.trend,
-                volatility=market_context.volatility,
-                volume_profile=market_context.volume_profile,
-                position_size=self.position_size
-            )
+            # 发布市场分析结果事件
+            event_bus.publish(EventTypes.MARKET_ANALYSIS_UPDATED, {
+                'symbol': self.symbol,
+                'trend': market_context.trend,
+                'volatility': market_context.volatility,
+                'volume_profile': market_context.volume_profile,
+                'position_size': self.position_size,
+                'current_price': market_context.current_price
+            }, source='StrategyEngine')
 
             # 2. 模式识别
             patterns = self._pattern_recognition(recent_bars, market_context)
@@ -315,6 +316,17 @@ class StrategyEngine:
         """处理生成的交易信号"""
         log.info(f"[SIGNAL] {self.symbol}: {signal.signal_type}信号 "
                 f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
+
+        # 发布信号生成事件
+        event_bus.publish(EventTypes.SIGNAL_GENERATED, {
+            'symbol': signal.symbol,
+            'signal_type': signal.signal_type,
+            'price': signal.price,
+            'confidence': signal.confidence,
+            'reason': signal.reason,
+            'timestamp': signal.timestamp,
+            'executed': False
+        }, source='StrategyEngine')
 
         # TODO: 在这里实现具体的交易执行逻辑
         # 例如：下单、仓位管理、风险控制等

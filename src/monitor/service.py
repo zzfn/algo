@@ -14,6 +14,7 @@ from .data import (
     PerformanceMetrics, SystemHealth, SystemStatus
 )
 from utils.log import setup_logging
+from utils.events import event_bus, EventTypes, Event
 
 log = setup_logging()
 
@@ -66,7 +67,52 @@ class MonitorService:
             daily_returns=[]
         )
 
+        # 订阅事件
+        self._setup_event_subscriptions()
+
         log.info("[MONITOR] 监控服务已初始化")
+
+    def _setup_event_subscriptions(self):
+        """设置事件订阅"""
+        # 订阅市场分析更新事件
+        event_bus.subscribe(EventTypes.MARKET_ANALYSIS_UPDATED, self._handle_market_analysis_event)
+
+        # 订阅信号生成事件
+        event_bus.subscribe(EventTypes.SIGNAL_GENERATED, self._handle_signal_event)
+
+        log.debug("[MONITOR] 事件订阅已设置")
+
+    def _handle_market_analysis_event(self, event: Event):
+        """处理市场分析更新事件"""
+        try:
+            data = event.data
+            self.update_symbol_status(
+                symbol=data['symbol'],
+                current_price=data.get('current_price'),
+                trend=data.get('trend'),
+                volatility=data.get('volatility'),
+                volume_profile=data.get('volume_profile'),
+                position_size=data.get('position_size')
+            )
+            log.debug(f"[MONITOR] 处理市场分析事件: {data['symbol']}")
+        except Exception as e:
+            log.error(f"[MONITOR] 处理市场分析事件失败: {e}")
+
+    def _handle_signal_event(self, event: Event):
+        """处理信号生成事件"""
+        try:
+            data = event.data
+            self.add_signal(
+                symbol=data['symbol'],
+                signal_type=data['signal_type'],
+                price=data['price'],
+                confidence=data['confidence'],
+                reason=data['reason'],
+                executed=data.get('executed', False)
+            )
+            log.debug(f"[MONITOR] 处理信号事件: {data['symbol']} {data['signal_type']}")
+        except Exception as e:
+            log.error(f"[MONITOR] 处理信号事件失败: {e}")
 
     def set_system_status(self, status: SystemStatus):
         """设置系统状态"""
