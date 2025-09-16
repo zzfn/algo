@@ -4,9 +4,13 @@ Al Brooks价格行为量化策略 - 基于alpaca-py的数据层架构
 """
 
 from alpaca.data.live import StockDataStream
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 
-from typing import Dict
+from typing import Dict, List
 import threading
+from datetime import datetime, timedelta
 
 from config.config import TradingConfig
 from utils.log import setup_logging
@@ -15,6 +19,7 @@ from strategy.strategy_engine import StrategyEngine
 from monitor.service import monitor
 from monitor.data import SystemStatus
 from monitor.web_server import WebMonitorServer
+from models.market_data import BarData
 
 log = setup_logging()
 
@@ -37,13 +42,78 @@ class TradingEngine:
         else:
             log.warning("[MONITOR] 监控面板启动失败")
 
+        # 批量加载历史数据
+        historical_data_by_symbol = self._load_historical_data_batch()
+
         self.strategy_engines: Dict[str, StrategyEngine] = {}
         for symbol in self.symbols:
-            self.strategy_engines[symbol] = StrategyEngine(symbol, self.config)
+            # 传入预加载的历史数据
+            symbol_historical_data = historical_data_by_symbol.get(symbol, [])
+            self.strategy_engines[symbol] = StrategyEngine(
+                symbol,
+                self.config,
+                preloaded_historical_data=symbol_historical_data
+            )
 
         self.stream = None
         self.stream_thread = None
         self._init_stream()
+
+    def _load_historical_data_batch(self, days: int = 30) -> Dict[str, List[BarData]]:
+        """批量加载所有symbol的历史数据"""
+        historical_data_by_symbol = {}
+
+        try:
+            client = StockHistoricalDataClient(
+                api_key=self.config.api_key,
+                secret_key=self.config.secret_key
+            )
+
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            # 一次性请求所有symbol的历史数据
+            request = StockBarsRequest(
+                symbol_or_symbols=self.symbols,
+                timeframe=TimeFrame.Minute,
+                start=start_date,
+                end=end_date,
+                feed=self.config.data_feed
+            )
+
+            bars = client.get_stock_bars(request)
+
+            # 按symbol分组历史数据
+            for symbol in self.symbols:
+                symbol_bars = bars.data.get(symbol, [])
+                if symbol_bars:
+                    # 转换为BarData对象
+                    symbol_bar_data = []
+                    for bar in symbol_bars:
+                        bar_data = BarData(
+                            symbol=symbol,
+                            timestamp=bar.timestamp,
+                            open=float(bar.open),
+                            high=float(bar.high),
+                            low=float(bar.low),
+                            close=float(bar.close),
+                            volume=int(bar.volume)
+                        )
+                        symbol_bar_data.append(bar_data)
+
+                    historical_data_by_symbol[symbol] = symbol_bar_data
+                    log.info(f"[ENGINE] {symbol}: 批量加载了{len(symbol_bars)}根历史K线")
+                else:
+                    log.warning(f"[ENGINE] {symbol}: 未获取到历史数据")
+                    historical_data_by_symbol[symbol] = []
+
+        except Exception as e:
+            log.error(f"[ENGINE] 批量加载历史数据失败: {e}")
+            # 如果批量加载失败，返回空字典，StrategyEngine将回退到单独加载
+            for symbol in self.symbols:
+                historical_data_by_symbol[symbol] = []
+
+        return historical_data_by_symbol
 
     def _init_stream(self):
         """初始化数据流"""

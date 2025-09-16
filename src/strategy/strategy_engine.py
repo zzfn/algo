@@ -4,7 +4,6 @@
 """
 
 import pandas as pd
-from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from collections import deque
 import threading
@@ -14,10 +13,7 @@ from models.strategy_data import TradingSignal, MarketContext
 from utils.log import setup_logging
 from config.config import TradingConfig
 from utils.events import event_bus, EventTypes, publish_event
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
-from utils.data_transforms import alpaca_bars_to_dataframe, bars_to_dataframe, get_latest_bars_slice
+from utils.data_transforms import bars_to_dataframe, get_latest_bars_slice
 from .price_action_analyzer import PurePriceActionAnalyzer, PriceActionContext, BarQuality, MarketStructure
 
 log = setup_logging()
@@ -28,7 +24,7 @@ class StrategyEngine:
     策略引擎 - 协调单个股票的完整策略流水线
     """
 
-    def __init__(self, symbol: str, config: Optional[TradingConfig] = None):
+    def __init__(self, symbol: str, config: Optional[TradingConfig] = None, preloaded_historical_data: Optional[list] = None):
         self.symbol = symbol
         self.config = config or TradingConfig.create()
         self.historical_data: Optional[pd.DataFrame] = None
@@ -46,55 +42,22 @@ class StrategyEngine:
 
         # 注意：现在使用纯函数版本的价格行为分析器，无需实例化
 
-        # 自动加载历史数据
-        self._load_historical_data()
+        # 加载预加载的历史数据
+        self._load_preloaded_data(preloaded_historical_data or [])
 
-    def _load_historical_data(self, days: int = 30):
-        """自动加载历史数据到bar_buffer"""
-        try:
-            client = StockHistoricalDataClient(
-                api_key=self.config.api_key,
-                secret_key=self.config.secret_key
-            )
+    def _load_preloaded_data(self, historical_data: list):
+        """使用预加载的历史数据"""
+        if historical_data:
+            # 将预加载的BarData对象直接添加到buffer
+            for bar_data in historical_data:
+                self.bar_buffer.append(bar_data)
 
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
+            log.info(f"[STRATEGY] {self.symbol}: 使用预加载的{len(historical_data)}根历史K线")
 
-            request = StockBarsRequest(
-                symbol_or_symbols=[self.symbol],
-                timeframe=TimeFrame.Minute,
-                start=start_date,
-                end=end_date,
-                feed=self.config.data_feed
-            )
-
-            bars = client.get_stock_bars(request)
-            symbol_bars = bars.data.get(self.symbol, [])
-
-            if symbol_bars:
-                # 将历史数据转换为BarData对象并添加到buffer
-                for bar in symbol_bars:
-                    bar_data = BarData(
-                        symbol=self.symbol,
-                        timestamp=bar.timestamp,
-                        open=float(bar.open),
-                        high=float(bar.high),
-                        low=float(bar.low),
-                        close=float(bar.close),
-                        volume=int(bar.volume)
-                    )
-                    self.bar_buffer.append(bar_data)
-
-                log.info(f"[STRATEGY] {self.symbol}: 自动加载了{len(symbol_bars)}根历史K线到缓存")
-
-                # 保留DataFrame格式的历史数据作为备份（可选）
-                self.historical_data = alpaca_bars_to_dataframe(symbol_bars)
-            else:
-                log.warning(f"[STRATEGY] {self.symbol}: 未获取到历史数据")
-                self.historical_data = pd.DataFrame()
-
-        except Exception as e:
-            log.error(f"[STRATEGY] {self.symbol}: 加载历史数据失败: {e}")
+            # 保留DataFrame格式的历史数据作为备份（可选）
+            self.historical_data = bars_to_dataframe(historical_data)
+        else:
+            log.warning(f"[STRATEGY] {self.symbol}: 预加载历史数据为空")
             self.historical_data = pd.DataFrame()
 
 
