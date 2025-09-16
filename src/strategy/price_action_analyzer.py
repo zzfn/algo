@@ -54,8 +54,8 @@ class AnalysisState:
     current_context: Optional[MarketContext]
 
 
-class PurePriceActionAnalyzer:
-    """纯函数版本的价格行为分析器"""
+class PriceActionAnalyzer:
+    """价格行为分析器"""
 
     @staticmethod
     def analyze_market_context(bars: pd.DataFrame, current_bar: BarData) -> PriceActionContext:
@@ -74,18 +74,18 @@ class PurePriceActionAnalyzer:
 
         # 分析市场结构和趋势强度
         if len(bars) < 10:
-            market_structure, trend_strength = PurePriceActionAnalyzer._simple_trend_analysis(bars, current_bar)
+            market_structure, trend_strength = PriceActionAnalyzer._simple_trend_analysis(bars, current_bar)
         else:
-            market_structure, trend_strength = PurePriceActionAnalyzer._analyze_market_structure(bars, current_bar)
+            market_structure, trend_strength = PriceActionAnalyzer._analyze_market_structure(bars, current_bar)
 
         # 分析当前K线质量
-        bar_quality = PurePriceActionAnalyzer._analyze_bar_quality(current_bar, bars)
+        bar_quality = PriceActionAnalyzer._analyze_bar_quality(current_bar, bars)
 
         # 检查是否在关键位置
-        at_key_level, key_level_type = PurePriceActionAnalyzer._check_key_levels(bars, current_bar)
+        at_key_level, key_level_type = PriceActionAnalyzer._check_key_levels(bars, current_bar)
 
         # 分析连续K线模式
-        consecutive_pattern = PurePriceActionAnalyzer._analyze_consecutive_pattern(bars)
+        consecutive_pattern = PriceActionAnalyzer._analyze_consecutive_pattern(bars)
 
         return PriceActionContext(
             symbol=current_bar.symbol,
@@ -111,16 +111,16 @@ class PurePriceActionAnalyzer:
             )
 
         # 使用价格行为分析获取市场背景
-        price_action_context = PurePriceActionAnalyzer.analyze_market_context(bars, current_bar)
+        price_action_context = PriceActionAnalyzer.analyze_market_context(bars, current_bar)
 
         # 将价格行为分析结果转换为传统的MarketContext格式
-        trend = PurePriceActionAnalyzer._convert_market_structure_to_trend(price_action_context.market_structure)
+        trend = PriceActionAnalyzer._convert_market_structure_to_trend(price_action_context.market_structure)
 
         # 基于趋势强度和K线质量计算波动率指标
-        volatility = PurePriceActionAnalyzer._calculate_price_action_volatility(price_action_context)
+        volatility = PriceActionAnalyzer._calculate_price_action_volatility(price_action_context)
 
         # 成交量分析
-        volume_profile = PurePriceActionAnalyzer._analyze_volume_profile(bars, current_bar)
+        volume_profile = PriceActionAnalyzer._analyze_volume_profile(bars, current_bar)
 
         return MarketContext(
             symbol=current_bar.symbol,
@@ -294,7 +294,7 @@ class PurePriceActionAnalyzer:
             return BarQuality.DOJI
 
         # 反转K线判断
-        if PurePriceActionAnalyzer._is_reversal_bar(current_bar, bars):
+        if PriceActionAnalyzer._is_reversal_bar(current_bar, bars):
             return BarQuality.REVERSAL
 
         # 强弱K线判断
@@ -324,14 +324,14 @@ class PurePriceActionAnalyzer:
 
         if total_range > 0 and lower_shadow > body * 2 and body / total_range < 0.3:
             # 检查是否在下降趋势中
-            if PurePriceActionAnalyzer._is_in_downtrend(recent_bars):
+            if PriceActionAnalyzer._is_in_downtrend(recent_bars):
                 return True
 
         # 上吊线（上影线长，实体小，在上升趋势中）
         upper_shadow = current_bar.high - max(current_bar.open, current_bar.close)
         if total_range > 0 and upper_shadow > body * 2 and body / total_range < 0.3:
             # 检查是否在上升趋势中
-            if PurePriceActionAnalyzer._is_in_uptrend(recent_bars):
+            if PriceActionAnalyzer._is_in_uptrend(recent_bars):
                 return True
 
         return False
@@ -364,8 +364,8 @@ class PurePriceActionAnalyzer:
         closes = bars['close'].values
 
         # 获取最近的高低点
-        recent_highs = PurePriceActionAnalyzer._find_local_peaks(highs[-20:], window=2)
-        recent_lows = PurePriceActionAnalyzer._find_local_valleys(lows[-20:], window=2)
+        recent_highs = PriceActionAnalyzer._find_local_peaks(highs[-20:], window=2)
+        recent_lows = PriceActionAnalyzer._find_local_valleys(lows[-20:], window=2)
 
         # 判断趋势方向和强度
         if len(recent_highs) >= 2 and len(recent_lows) >= 2:
@@ -396,9 +396,9 @@ class PurePriceActionAnalyzer:
                 else:
                     return MarketStructure.WEAK_TREND_DOWN, trend_strength
             else:
-                return PurePriceActionAnalyzer._analyze_ema_trend(bars, current_bar)
+                return PriceActionAnalyzer._analyze_ema_trend(bars, current_bar)
         else:
-            return PurePriceActionAnalyzer._analyze_ema_trend(bars, current_bar)
+            return PriceActionAnalyzer._analyze_ema_trend(bars, current_bar)
 
     @staticmethod
     def _find_local_peaks(data: List[float], window: int = 2) -> List[float]:
@@ -447,8 +447,8 @@ class PurePriceActionAnalyzer:
         lows = bars['low'].values
 
         # 寻找最近20根K线的重要高低点
-        recent_highs = PurePriceActionAnalyzer._find_local_peaks(highs[-20:])
-        recent_lows = PurePriceActionAnalyzer._find_local_valleys(lows[-20:])
+        recent_highs = PriceActionAnalyzer._find_local_peaks(highs[-20:])
+        recent_lows = PriceActionAnalyzer._find_local_valleys(lows[-20:])
 
         # 检查当前价格是否接近这些关键位置
         tolerance = (max(highs[-20:]) - min(lows[-20:])) * 0.005  # 0.5%容差
@@ -501,7 +501,7 @@ class PurePriceActionAnalyzer:
         current_ema = ema20.iloc[-1]
 
         # 检查最近几根K线是否反复穿越EMA20
-        recent_crosses = PurePriceActionAnalyzer._count_ema_crosses(bars.tail(10), ema20.tail(10))
+        recent_crosses = PriceActionAnalyzer._count_ema_crosses(bars.tail(10), ema20.tail(10))
 
         # 计算价格偏离EMA的程度作为趋势强度
         price_deviation = abs(current_price - current_ema) / current_ema if current_ema > 0 else 0.0

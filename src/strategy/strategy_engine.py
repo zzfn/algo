@@ -14,7 +14,7 @@ from utils.log import setup_logging
 from config.config import TradingConfig
 from utils.events import event_bus, EventTypes, publish_event
 from utils.data_transforms import bars_to_dataframe, get_latest_bars_slice
-from .price_action_analyzer import PurePriceActionAnalyzer, PriceActionContext, BarQuality, MarketStructure
+from .price_action_analyzer import PriceActionAnalyzer, PriceActionContext, BarQuality, MarketStructure
 
 log = setup_logging()
 
@@ -75,20 +75,20 @@ class StrategyEngine:
                 return None
 
             # 1. 市场分析（纯函数）
-            market_context = PurePriceActionAnalyzer.market_analysis(recent_bars, bar_data)
+            market_context = PriceActionAnalyzer.market_analysis(recent_bars, bar_data)
             self.current_context = market_context
 
             # 发布市场分析结果事件
             self._emit_market_analysis_update(market_context)
 
             # 2. 模式识别（纯函数）
-            patterns = PurePriceActionAnalyzer.pattern_recognition(recent_bars, market_context)
+            patterns = PriceActionAnalyzer.pattern_recognition(recent_bars, market_context)
 
             # 4. 信号生成（纯函数）
-            signal = PurePriceActionAnalyzer.signal_generation(patterns, market_context, bar_data)
+            signal = PriceActionAnalyzer.signal_generation(patterns, market_context, bar_data)
 
             # 5. 风险管理（纯函数）
-            final_signal = PurePriceActionAnalyzer.risk_management(signal, market_context, self.last_signal)
+            final_signal = PriceActionAnalyzer.risk_management(signal, market_context, self.last_signal)
 
             # 6. 执行决策
             if final_signal:
