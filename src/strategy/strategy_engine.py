@@ -15,6 +15,7 @@ from config.config import TradingConfig
 from utils.events import event_bus, EventTypes, publish_event
 from utils.data_transforms import bars_to_dataframe, get_latest_bars_slice
 from .price_action_analyzer import PriceActionAnalyzer, PriceActionContext, BarQuality, MarketStructure
+from .execution_engine import ExecutionEngine
 
 log = setup_logging(module_prefix='STRATEGY')
 
@@ -40,7 +41,7 @@ class StrategyEngine:
         self.latest_bar: Optional[BarData] = None
         self.lock = threading.Lock()
 
-        # 注意：现在使用纯函数版本的价格行为分析器，无需实例化
+        # 注意：现在使用纯函数版本的价格行为分析器和执行引擎，无需实例化
 
         # 加载预加载的历史数据
         self._load_preloaded_data(preloaded_historical_data or [])
@@ -87,17 +88,11 @@ class StrategyEngine:
             # 4. 信号生成（纯函数）
             signal = PriceActionAnalyzer.signal_generation(patterns, market_context, bar_data)
 
-            # 5. 风险管理（纯函数）
-            final_signal = PriceActionAnalyzer.risk_management(signal, market_context, self.last_signal)
+            # 5. 执行决策（包含风险管理）
+            final_signal = ExecutionEngine.process_signal(signal, market_context)
 
-            # 6. 执行决策
             if final_signal:
                 self.last_signal = final_signal
-                log.info(f"{self.symbol}: 生成{final_signal.signal_type}信号 "
-                        f"@{final_signal.price:.2f} 置信度:{final_signal.confidence:.2f}")
-
-                # 直接处理交易信号
-                self.handle_trading_signal(final_signal)
 
             return final_signal
 
@@ -125,18 +120,6 @@ class StrategyEngine:
             'current_price': market_context.current_price
         }
 
-    @publish_event(EventTypes.SIGNAL_GENERATED, source='StrategyEngine')
-    def _emit_signal_event(self, signal: TradingSignal) -> Dict[str, Any]:
-        """发布信号生成事件（使用装饰器）"""
-        return {
-            'symbol': signal.symbol,
-            'signal_type': signal.signal_type,
-            'price': signal.price,
-            'confidence': signal.confidence,
-            'reason': signal.reason,
-            'timestamp': signal.timestamp,
-            'executed': False
-        }
 
     def get_current_context(self) -> Optional[MarketContext]:
         """获取当前市场背景"""
@@ -146,17 +129,6 @@ class StrategyEngine:
         """获取最后的交易信号"""
         return self.last_signal
 
-    def handle_trading_signal(self, signal: TradingSignal):
-        """处理生成的交易信号"""
-        log.info(f"{self.symbol}: {signal.signal_type}信号 "
-                f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
-
-        # 使用装饰器发布信号事件
-        self._emit_signal_event(signal)
-
-        # TODO: 在这里实现具体的交易执行逻辑
-        # 例如：下单、仓位管理、风险控制等
-        # 每个策略引擎可以有不同的执行逻辑
 
 
     def add_bar(self, bar: BarData):
