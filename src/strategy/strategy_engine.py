@@ -16,7 +16,7 @@ from utils.events import event_bus, EventTypes, publish_event
 from utils.data_transforms import bars_to_dataframe, get_latest_bars_slice
 from .price_action_analyzer import PriceActionAnalyzer, PriceActionContext, BarQuality, MarketStructure
 
-log = setup_logging()
+log = setup_logging(module_prefix='STRATEGY')
 
 
 class StrategyEngine:
@@ -52,12 +52,12 @@ class StrategyEngine:
             for bar_data in historical_data:
                 self.bar_buffer.append(bar_data)
 
-            log.info(f"[STRATEGY] {self.symbol}: 使用预加载的{len(historical_data)}根历史K线")
+            log.info(f"{self.symbol}: 使用预加载的{len(historical_data)}根历史K线")
 
             # 保留DataFrame格式的历史数据作为备份（可选）
             self.historical_data = bars_to_dataframe(historical_data)
         else:
-            log.warning(f"[STRATEGY] {self.symbol}: 预加载历史数据为空")
+            log.warning(f"{self.symbol}: 预加载历史数据为空")
             self.historical_data = pd.DataFrame()
 
 
@@ -93,7 +93,7 @@ class StrategyEngine:
             # 6. 执行决策
             if final_signal:
                 self.last_signal = final_signal
-                log.info(f"[STRATEGY] {self.symbol}: 生成{final_signal.signal_type}信号 "
+                log.info(f"{self.symbol}: 生成{final_signal.signal_type}信号 "
                         f"@{final_signal.price:.2f} 置信度:{final_signal.confidence:.2f}")
 
                 # 直接处理交易信号
@@ -102,7 +102,7 @@ class StrategyEngine:
             return final_signal
 
         except Exception as e:
-            log.error(f"[STRATEGY] {self.symbol} 策略处理错误: {e}")
+            log.error(f"{self.symbol} 策略处理错误: {e}")
             return None
 
 
@@ -148,7 +148,7 @@ class StrategyEngine:
 
     def handle_trading_signal(self, signal: TradingSignal):
         """处理生成的交易信号"""
-        log.info(f"[SIGNAL] {self.symbol}: {signal.signal_type}信号 "
+        log.info(f"{self.symbol}: {signal.signal_type}信号 "
                 f"@{signal.price:.2f} 置信度:{signal.confidence:.2f} 原因:{signal.reason}")
 
         # 使用装饰器发布信号事件

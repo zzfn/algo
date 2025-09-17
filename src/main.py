@@ -21,7 +21,7 @@ from monitor.data import SystemStatus
 from monitor.web_server import WebMonitorServer
 from models.market_data import BarData
 
-log = setup_logging()
+log = setup_logging(module_prefix='ENGINE')
 
 class TradingEngine:
     """交易引擎 - 完整的量化交易系统"""
@@ -102,13 +102,13 @@ class TradingEngine:
                         symbol_bar_data.append(bar_data)
 
                     historical_data_by_symbol[symbol] = symbol_bar_data
-                    log.info(f"[ENGINE] {symbol}: 批量加载了{len(symbol_bars)}根历史K线")
+                    log.info(f"{symbol}: 批量加载了{len(symbol_bars)}根历史K线")
                 else:
-                    log.warning(f"[ENGINE] {symbol}: 未获取到历史数据")
+                    log.warning(f"{symbol}: 未获取到历史数据")
                     historical_data_by_symbol[symbol] = []
 
         except Exception as e:
-            log.error(f"[ENGINE] 批量加载历史数据失败: {e}")
+            log.error(f"批量加载历史数据失败: {e}")
             # 如果批量加载失败，返回空字典，StrategyEngine将回退到单独加载
             for symbol in self.symbols:
                 historical_data_by_symbol[symbol] = []
@@ -127,7 +127,7 @@ class TradingEngine:
 
     def start(self):
         """启动策略"""
-        log.info("[ENGINE] 启动交易引擎...")
+        log.info("启动交易引擎...")
         monitor.set_system_status(SystemStatus.RUNNING)
         monitor.set_connection_status(data_feed=False, trading_api=True)
 
@@ -173,11 +173,11 @@ class TradingEngine:
 
         self.stream_thread = threading.Thread(target=run_stream, daemon=False)
         self.stream_thread.start()
-        log.info(f"[ENGINE] 已启动实时数据流，监听股票: {self.symbols}")
+        log.info(f"已启动实时数据流，监听股票: {self.symbols}")
 
     def stop(self):
         """停止策略"""
-        log.info("[ENGINE] 停止交易引擎...")
+        log.info("停止交易引擎...")
         monitor.set_system_status(SystemStatus.STOPPED)
 
         if self.stream:
@@ -189,7 +189,7 @@ class TradingEngine:
         if hasattr(self, 'web_monitor'):
             self.web_monitor.stop()
 
-        log.info("[ENGINE] 交易引擎已停止")
+        log.info("交易引擎已停止")
 
 if __name__ == "__main__":
     engine = TradingEngine()
@@ -197,5 +197,5 @@ if __name__ == "__main__":
         engine.start()
         engine.stream_thread.join()
     except KeyboardInterrupt:
-        log.info("[ENGINE] 收到停止信号...")
+        log.info("收到停止信号...")
         engine.stop()
