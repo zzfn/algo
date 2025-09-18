@@ -9,6 +9,22 @@ show_every_n = input.int(1, title="每隔几根K线显示", minval=1, maxval=50)
 show_ema20 = input.bool(true, title="显示EMA20")
 ema20_color = input.color(color.blue, title="EMA20颜色")
 
+// Al Brooks价格行为学参数
+show_pin_bars = input.bool(true, title="显示Pin Bar（针形K线）")
+pin_bar_color = input.color(color.red, title="Pin Bar颜色")
+show_inside_bars = input.bool(true, title="显示Inside Bar（内包线）")
+inside_bar_color = input.color(color.orange, title="Inside Bar颜色")
+show_outside_bars = input.bool(true, title="显示Outside Bar（外包线）")
+outside_bar_color = input.color(color.purple, title="Outside Bar颜色")
+show_trend_bars = input.bool(true, title="显示趋势棒")
+trend_bar_color = input.color(color.green, title="趋势棒颜色")
+show_two_bar_reversal = input.bool(true, title="显示两棒反转")
+two_bar_reversal_color = input.color(color.fuchsia, title="两棒反转颜色")
+show_support_resistance = input.bool(true, title="显示支撑阻力线")
+sr_line_style = input.string("实线", title="支撑阻力线样式", options=["实线", "虚线", "点线"])
+pin_bar_threshold = input.float(0.6, title="Pin Bar阈值", minval=0.1, maxval=0.9, step=0.1)
+trend_bar_threshold = input.float(0.7, title="趋势棒阈值", minval=0.1, maxval=0.9, step=0.1)
+
 // 获取文字大小枚举值
 get_text_size(size_str) =>
     switch size_str
@@ -22,6 +38,109 @@ get_text_size(size_str) =>
 // 计算EMA20
 ema20 = ta.ema(close, 20)
 
+// Al Brooks价格行为学函数
+
+// Pin Bar检测函数
+is_pin_bar() =>
+    body_size = math.abs(close - open)
+    candle_range = high - low
+    upper_wick = high - math.max(open, close)
+    lower_wick = math.min(open, close) - low
+
+    // Pin Bar条件：实体小，单侧影线长
+    body_ratio = body_size / candle_range
+    upper_wick_ratio = upper_wick / candle_range
+    lower_wick_ratio = lower_wick / candle_range
+
+    is_bullish_pin = body_ratio < (1 - pin_bar_threshold) and lower_wick_ratio > pin_bar_threshold and upper_wick_ratio < 0.2
+    is_bearish_pin = body_ratio < (1 - pin_bar_threshold) and upper_wick_ratio > pin_bar_threshold and lower_wick_ratio < 0.2
+
+    [is_bullish_pin or is_bearish_pin, is_bullish_pin, is_bearish_pin]
+
+// Inside Bar检测函数
+is_inside_bar() =>
+    if not na(high[1]) and not na(low[1])
+        high < high[1] and low > low[1]
+    else
+        false
+
+// Outside Bar检测函数
+is_outside_bar() =>
+    if not na(high[1]) and not na(low[1])
+        high > high[1] and low < low[1]
+    else
+        false
+
+// 趋势棒检测函数
+is_trend_bar() =>
+    body_size = math.abs(close - open)
+    candle_range = high - low
+
+    // 避免除零
+    if candle_range == 0
+        [false, false, false]
+    else
+        body_ratio = body_size / candle_range
+
+        // 趋势棒条件：实体大，影线相对较小
+        is_strong_trend_bar = body_ratio > trend_bar_threshold
+        is_bullish_trend_bar = is_strong_trend_bar and close > open
+        is_bearish_trend_bar = is_strong_trend_bar and close < open
+
+        [is_strong_trend_bar, is_bullish_trend_bar, is_bearish_trend_bar]
+
+// 两棒反转检测函数
+is_two_bar_reversal() =>
+    if not na(high[1]) and not na(low[1]) and not na(open[1]) and not na(close[1])
+        // 看涨两棒反转：前一根下跌棒+当前上涨棒突破前根高点
+        is_bullish_two_bar = close[1] < open[1] and close > open and close > high[1]
+
+        // 看跌两棒反转：前一根上涨棒+当前下跌棒突破前根低点
+        is_bearish_two_bar = close[1] > open[1] and close < open and close < low[1]
+
+        [is_bullish_two_bar or is_bearish_two_bar, is_bullish_two_bar, is_bearish_two_bar]
+    else
+        [false, false, false]
+
+// 简单趋势线检测（基于最近的高低点）
+get_trend_direction() =>
+    lookback = 20
+    highest_price = ta.highest(high, lookback)
+    lowest_price = ta.lowest(low, lookback)
+
+    // 简化的趋势判断
+    if close > ema20 and close > close[5]
+        1  // 上升趋势
+    else if close < ema20 and close < close[5]
+        -1 // 下降趋势
+    else
+        0  // 震荡
+
+// 支撑阻力位检测
+get_support_resistance() =>
+    lookback = 50
+
+    // 寻找历史关键高低点（不包括当前K线）
+    recent_high = ta.highest(high[1], lookback)
+    recent_low = ta.lowest(low[1], lookback)
+
+    // 检测是否接近关键位（用于信息显示）
+    resistance_distance = recent_high > 0 ? math.abs(close - recent_high) / recent_high : 1
+    support_distance = recent_low > 0 ? math.abs(close - recent_low) / recent_low : 1
+
+    is_near_resistance = resistance_distance < 0.01 and high < recent_high
+    is_near_support = support_distance < 0.01 and low > recent_low
+
+    [is_near_resistance, is_near_support, recent_high, recent_low]
+
+// 获取线条样式
+get_line_style(style_str) =>
+    switch style_str
+        "实线" => line.style_solid
+        "虚线" => line.style_dashed
+        "点线" => line.style_dotted
+        => line.style_solid
+
 // 检测是否是新的交易日
 var int daily_bar_count = 0
 
@@ -34,21 +153,98 @@ if is_new_day
 else
     daily_bar_count += 1
 
+// 计算所有价格行为学信号
+[pin_bar_signal, bullish_pin, bearish_pin] = is_pin_bar()
+inside_bar_signal = is_inside_bar()
+outside_bar_signal = is_outside_bar()
+[trend_bar_signal, bullish_trend, bearish_trend] = is_trend_bar()
+[two_bar_signal, bullish_two_bar, bearish_two_bar] = is_two_bar_reversal()
+trend_direction = get_trend_direction()
+[near_resistance, near_support, resistance_level, support_level] = get_support_resistance()
+
 // 只在显示标签开启时创建标签
 if show_labels and not na(close) and daily_bar_count % show_every_n == 0
     label_y = low - (high - low) * 0.3
     label.new(bar_index, label_y, str.tostring(daily_bar_count), style=label.style_none, color=color.new(color.white, 100), textcolor=label_color, size=get_text_size(text_size))
 
+// Al Brooks价格行为学信号标记
+
+// Pin Bar标记
+if show_pin_bars and pin_bar_signal
+    pin_label_text = bullish_pin ? "看涨Pin" : "看跌Pin"
+    pin_label_y = bullish_pin ? low - (high - low) * 0.5 : high + (high - low) * 0.3
+    pin_style = bullish_pin ? label.style_label_up : label.style_label_down
+    label.new(bar_index, pin_label_y, pin_label_text, style=pin_style, color=pin_bar_color, textcolor=color.white, size=size.small)
+
+// Inside Bar标记
+if show_inside_bars and inside_bar_signal
+    label.new(bar_index, high + (high - low) * 0.1, "IB", style=label.style_circle, color=inside_bar_color, textcolor=color.white, size=size.small)
+
+// Outside Bar标记
+if show_outside_bars and outside_bar_signal
+    label.new(bar_index, high + (high - low) * 0.1, "OB", style=label.style_diamond, color=outside_bar_color, textcolor=color.white, size=size.small)
+
+// 趋势棒标记
+if show_trend_bars and trend_bar_signal
+    trend_label_text = bullish_trend ? "强多" : "强空"
+    trend_label_y = bullish_trend ? low - (high - low) * 0.2 : high + (high - low) * 0.2
+    trend_style = bullish_trend ? label.style_triangleup : label.style_triangledown
+    label.new(bar_index, trend_label_y, trend_label_text, style=trend_style, color=trend_bar_color, textcolor=color.white, size=size.small)
+
+// 两棒反转标记
+if show_two_bar_reversal and two_bar_signal
+    reversal_label_text = bullish_two_bar ? "2BR↑" : "2BR↓"
+    reversal_label_y = bullish_two_bar ? low - (high - low) * 0.4 : high + (high - low) * 0.4
+    reversal_style = bullish_two_bar ? label.style_arrowup : label.style_arrowdown
+    label.new(bar_index, reversal_label_y, reversal_label_text, style=reversal_style, color=two_bar_reversal_color, textcolor=color.white, size=size.normal)
+
 // 绘制EMA20
 plot(show_ema20 ? ema20 : na, color=ema20_color, linewidth=2, title="EMA20")
+
+// 绘制支撑阻力水平线（使用plot代替hline以支持动态值）
+plot(show_support_resistance ? resistance_level : na, title="阻力位", color=color.red, style=plot.style_line, linewidth=1)
+plot(show_support_resistance ? support_level : na, title="支撑位", color=color.green, style=plot.style_line, linewidth=1)
+
+// 趋势背景色
+trend_bgcolor = trend_direction == 1 ? color.new(color.green, 95) : trend_direction == -1 ? color.new(color.red, 95) : na
+bgcolor(trend_bgcolor, title="趋势背景")
 
 // 在图表上绘制一条分隔线来标记新的交易日
 bgcolor(is_new_day ? color.new(color.gray, 90) : na, title="新交易日背景")
 
-// 显示当前计数信息
+// 显示当前计数信息和价格行为学状态
 if barstate.islast
-    var table info_table = table.new(position.top_right, 2, 2, bgcolor=color.new(color.white, 80), border_width=1)
+    var table info_table = table.new(position.top_right, 2, 5, bgcolor=color.new(color.white, 80), border_width=1)
     table.cell(info_table, 0, 0, "当前K线序号:", text_color=color.black, text_size=size.small)
     table.cell(info_table, 1, 0, str.tostring(daily_bar_count), text_color=color.red, text_size=size.normal)
     table.cell(info_table, 0, 1, "交易日期:", text_color=color.black, text_size=size.small)
     table.cell(info_table, 1, 1, str.format("{0}/{1}/{2}", year, month, dayofmonth), text_color=color.blue, text_size=size.normal)
+
+    // 趋势状态
+    trend_text = trend_direction == 1 ? "上升" : trend_direction == -1 ? "下降" : "震荡"
+    trend_color = trend_direction == 1 ? color.green : trend_direction == -1 ? color.red : color.gray
+    table.cell(info_table, 0, 2, "趋势:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 2, trend_text, text_color=trend_color, text_size=size.normal)
+
+    // 支撑阻力状态
+    sr_text = near_resistance ? "接近阻力" : near_support ? "接近支撑" : "正常"
+    sr_color = near_resistance ? color.red : near_support ? color.green : color.gray
+    table.cell(info_table, 0, 3, "支撑阻力:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 3, sr_text, text_color=sr_color, text_size=size.normal)
+
+    // 当前信号
+    current_signals = ""
+    if pin_bar_signal
+        current_signals += "Pin Bar "
+    if inside_bar_signal
+        current_signals += "IB "
+    if outside_bar_signal
+        current_signals += "OB "
+    if trend_bar_signal
+        current_signals += "趋势棒 "
+    if two_bar_signal
+        current_signals += "2BR "
+
+    signal_text = current_signals == "" ? "无" : current_signals
+    table.cell(info_table, 0, 4, "当前信号:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 4, signal_text, text_color=color.blue, text_size=size.small)
