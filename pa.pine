@@ -1,0 +1,46 @@
+//@version=6
+indicator("K线计数器", shorttitle="K线计数", overlay=true, max_labels_count=500)
+
+// 输入参数
+label_color = input.color(color.yellow, title="标签颜色")
+text_size = input.string("normal", title="文字大小", options=["tiny", "small", "normal", "large", "huge"])
+show_labels = input.bool(true, title="显示标签")
+show_every_n = input.int(1, title="每隔几根K线显示", minval=1, maxval=50)
+
+// 获取文字大小枚举值
+get_text_size(size_str) =>
+    switch size_str
+        "tiny" => size.tiny
+        "small" => size.small
+        "normal" => size.normal
+        "large" => size.large
+        "huge" => size.huge
+        => size.normal
+
+// 检测是否是新的交易日
+var int daily_bar_count = 0
+
+// 判断是否是新的一天
+is_new_day = ta.change(time("1D")) != 0
+
+// 如果是新的一天，重置计数器
+if is_new_day
+    daily_bar_count := 1
+else
+    daily_bar_count += 1
+
+// 只在显示标签开启时创建标签
+if show_labels and not na(close) and daily_bar_count % show_every_n == 0
+    label_y = low - (high - low) * 0.3
+    label.new(bar_index, label_y, str.tostring(daily_bar_count), style=label.style_none, color=color.new(color.white, 100), textcolor=label_color, size=get_text_size(text_size))
+
+// 在图表上绘制一条分隔线来标记新的交易日
+bgcolor(is_new_day ? color.new(color.gray, 90) : na, title="新交易日背景")
+
+// 显示当前计数信息
+if barstate.islast
+    var table info_table = table.new(position.top_right, 2, 2, bgcolor=color.new(color.white, 80), border_width=1)
+    table.cell(info_table, 0, 0, "当前K线序号:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 0, str.tostring(daily_bar_count), text_color=color.red, text_size=size.normal)
+    table.cell(info_table, 0, 1, "交易日期:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 1, str.format("{0}/{1}/{2}", year, month, dayofmonth), text_color=color.blue, text_size=size.normal)
