@@ -31,6 +31,9 @@ class MarketStructure(Enum):
     WEAK_TREND_DOWN = "weak_trend_down"      # 弱势下降趋势
     TRADING_RANGE = "trading_range"          # 交易区间
     BREAKOUT_ATTEMPT = "breakout_attempt"    # 突破尝试
+    TWO_LEG_PULLBACK = "two_leg_pullback"    # 二腿修正
+    WEDGE_PATTERN = "wedge_pattern"          # 楔形模式
+    TEST_PATTERN = "test_pattern"            # 测试模式
 
 
 @dataclass
@@ -44,6 +47,11 @@ class PriceActionContext:
     at_key_level: bool             # 是否在关键位置
     key_level_type: Optional[str]  # 关键位置类型
     consecutive_pattern: Optional[str]  # 连续K线模式
+    two_leg_pullback: Optional[Dict[str, Any]]  # 二腿修正信息
+    wedge_pattern: Optional[Dict[str, Any]]     # 楔形模式信息
+    test_pattern: Optional[Dict[str, Any]]      # 测试模式信息
+    trendline_break: Optional[Dict[str, Any]]   # 趋势线突破信息
+    failed_breakout: Optional[Dict[str, Any]]   # 假突破信息
 
 
 @dataclass
@@ -87,6 +95,13 @@ class PriceActionAnalyzer:
         # 分析连续K线模式
         consecutive_pattern = PriceActionAnalyzer._analyze_consecutive_pattern(bars)
 
+        # 分析Al Brooks高级模式
+        two_leg_pullback = PriceActionAnalyzer._analyze_two_leg_pullback(bars, current_bar)
+        wedge_pattern = PriceActionAnalyzer._analyze_wedge_pattern(bars, current_bar)
+        test_pattern = PriceActionAnalyzer._analyze_test_pattern(bars, current_bar)
+        trendline_break = PriceActionAnalyzer._analyze_trendline_break(bars, current_bar)
+        failed_breakout = PriceActionAnalyzer._analyze_failed_breakout(bars, current_bar)
+
         return PriceActionContext(
             symbol=current_bar.symbol,
             current_price=current_bar.close,
@@ -95,7 +110,12 @@ class PriceActionAnalyzer:
             trend_strength=trend_strength,
             at_key_level=at_key_level,
             key_level_type=key_level_type,
-            consecutive_pattern=consecutive_pattern
+            consecutive_pattern=consecutive_pattern,
+            two_leg_pullback=two_leg_pullback,
+            wedge_pattern=wedge_pattern,
+            test_pattern=test_pattern,
+            trendline_break=trendline_break,
+            failed_breakout=failed_breakout
         )
 
     @staticmethod
@@ -131,7 +151,7 @@ class PriceActionAnalyzer:
         )
 
     @staticmethod
-    def pattern_recognition(bars: pd.DataFrame, context: MarketContext) -> Dict[str, Any]:
+    def pattern_recognition(bars: pd.DataFrame, context: MarketContext, current_bar: BarData) -> Dict[str, Any]:
         """纯函数：模式识别 - Al Brooks价格行为模式"""
         patterns = {}
 
@@ -151,36 +171,57 @@ class PriceActionAnalyzer:
             'strength': context.volatility
         }
 
-        # 检测反转模式（更严格的条件）
-        if len(recent_bars) >= 5:
-            last_5_closes = recent_bars['close'].tail(5)
-            # 需要更强的信号确认反转
-            strong_ascending = all(last_5_closes.iloc[i] < last_5_closes.iloc[i+1] for i in range(4))
-            strong_descending = all(last_5_closes.iloc[i] > last_5_closes.iloc[i+1] for i in range(4))
+        # Al Brooks反转模式：基于K线质量和价格行为背景
+        price_action_context = PriceActionAnalyzer.analyze_market_context(bars, current_bar)
 
-            # 只有在强趋势中才考虑反转，弱趋势中的回调不算反转
-            is_strong_uptrend = context.trend == "UPTREND" and context.volatility > 2.0
-            is_strong_downtrend = context.trend == "DOWNTREND" and context.volatility > 2.0
-
+        # 基本反转信号：基于K线质量
+        if price_action_context.bar_quality == BarQuality.REVERSAL:
             patterns['reversal'] = {
-                'bullish_reversal': strong_ascending and is_strong_downtrend,
-                'bearish_reversal': strong_descending and is_strong_uptrend
+                'bullish_reversal': (price_action_context.market_structure in
+                                   [MarketStructure.STRONG_TREND_DOWN, MarketStructure.WEAK_TREND_DOWN]),
+                'bearish_reversal': (price_action_context.market_structure in
+                                   [MarketStructure.STRONG_TREND_UP, MarketStructure.WEAK_TREND_UP])
             }
+
+        # Al Brooks高级模式
+        # 二腿修正模式
+        if price_action_context.two_leg_pullback:
+            patterns['two_leg_pullback'] = price_action_context.two_leg_pullback
+
+        # 楔形模式
+        if price_action_context.wedge_pattern:
+            patterns['wedge'] = price_action_context.wedge_pattern
+
+        # 测试模式
+        if price_action_context.test_pattern:
+            patterns['test'] = price_action_context.test_pattern
+
+        # 趋势线突破
+        if price_action_context.trendline_break:
+            patterns['trendline_break'] = price_action_context.trendline_break
+
+        # 假突破模式
+        if price_action_context.failed_breakout:
+            patterns['failed_breakout'] = price_action_context.failed_breakout
 
         return patterns
 
     @staticmethod
-    def signal_generation(patterns: Dict[str, Any], context: MarketContext, bar: BarData) -> Optional[TradingSignal]:
-        """纯函数：信号生成"""
-        # 基于模式和市场背景生成信号
+    def signal_generation(bars: pd.DataFrame, bar: BarData) -> Tuple[Optional[TradingSignal], MarketContext]:
+        """纯函数：集成市场分析、模式识别和信号生成，返回信号和市场分析结果"""
+        # 1. 市场分析
+        context = PriceActionAnalyzer.market_analysis(bars, bar)
+
+        # 2. 模式识别
+        patterns = PriceActionAnalyzer.pattern_recognition(bars, context, bar)
+
+        # 3. 基于模式和市场背景生成信号
         if 'breakout' in patterns:
             breakout = patterns['breakout']
 
-            # 上涨突破信号
+            # 上涨突破信号 - Al Brooks: 专注价格行为，不依赖成交量
             if (breakout['high_break'] and
-                context.trend in ["UPTREND", "SIDEWAYS"] and
-                context.volume_profile in ["HIGH", "NORMAL"] and
-                context.volatility > 1.0):
+                context.trend in ["UPTREND", "SIDEWAYS"]):
 
                 confidence = 0.8 if context.trend == "UPTREND" else 0.6
                 return TradingSignal(
@@ -190,13 +231,11 @@ class PriceActionAnalyzer:
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向上突破 + 上升趋势"
-                )
+                ), context
 
-            # 下跌突破信号
+            # 下跌突破信号 - Al Brooks: 专注价格行为，不依赖成交量
             if (breakout['low_break'] and
-                context.trend in ["DOWNTREND", "SIDEWAYS"] and
-                context.volume_profile in ["HIGH", "NORMAL"] and
-                context.volatility > 1.0):
+                context.trend in ["DOWNTREND", "SIDEWAYS"]):
 
                 confidence = 0.8 if context.trend == "DOWNTREND" else 0.6
                 return TradingSignal(
@@ -206,9 +245,122 @@ class PriceActionAnalyzer:
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向下突破 + 下降趋势"
-                )
+                ), context
 
-        # 反转信号（只在强趋势中考虑）
+        # Al Brooks高级模式信号
+        # 二腿修正信号
+        if 'two_leg_pullback' in patterns:
+            pullback = patterns['two_leg_pullback']
+            if pullback['type'] == 'bullish_two_leg' and pullback['strength'] > 0.3:
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="BUY",
+                    confidence=0.75,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="二腿修正后看涨信号"
+                ), context
+            elif pullback['type'] == 'bearish_two_leg' and pullback['strength'] > 0.3:
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="SELL",
+                    confidence=0.75,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="二腿修正后看跌信号"
+                ), context
+
+        # 楔形突破信号
+        if 'wedge' in patterns:
+            wedge = patterns['wedge']
+            if wedge['type'] == 'converging_wedge':
+                # 收敛楔形突破通常延续原趋势
+                if context.trend == "UPTREND":
+                    return TradingSignal(
+                        symbol=bar.symbol,
+                        signal_type="BUY",
+                        confidence=0.7,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
+                        reason="收敛楔形向上突破"
+                    ), context
+                elif context.trend == "DOWNTREND":
+                    return TradingSignal(
+                        symbol=bar.symbol,
+                        signal_type="SELL",
+                        confidence=0.7,
+                        price=bar.close,
+                        timestamp=bar.timestamp,
+                        reason="收敛楔形向下突破"
+                    ), context
+
+        # 趋势线突破信号
+        if 'trendline_break' in patterns:
+            trendline = patterns['trendline_break']
+            if trendline['signal'] == 'bullish' and trendline['break_strength'] > 0.01:
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="BUY",
+                    confidence=0.65,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="向上突破下降趋势线"
+                ), context
+            elif trendline['signal'] == 'bearish' and trendline['break_strength'] > 0.01:
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="SELL",
+                    confidence=0.65,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="向下突破上升趋势线"
+                ), context
+
+        # 假突破反转信号
+        if 'failed_breakout' in patterns:
+            failed = patterns['failed_breakout']
+            if failed['signal'] == 'bullish_reversal':
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="BUY",
+                    confidence=0.8,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="假突破后看涨反转"
+                ), context
+            elif failed['signal'] == 'bearish_reversal':
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="SELL",
+                    confidence=0.8,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="假突破后看跌反转"
+                ), context
+
+        # 测试模式信号（支撑阻力位测试）
+        if 'test' in patterns:
+            test = patterns['test']
+            if test['type'] == 'support_test' and test['test_quality'] == 'strong':
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="BUY",
+                    confidence=0.6,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="强支撑位测试反弹"
+                ), context
+            elif test['type'] == 'resistance_test' and test['test_quality'] == 'strong':
+                return TradingSignal(
+                    symbol=bar.symbol,
+                    signal_type="SELL",
+                    confidence=0.6,
+                    price=bar.close,
+                    timestamp=bar.timestamp,
+                    reason="强阻力位测试回落"
+                ), context
+
+        # 基本反转信号（只在强趋势中考虑）
         if 'reversal' in patterns:
             reversal = patterns['reversal']
 
@@ -220,7 +372,7 @@ class PriceActionAnalyzer:
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="强势看涨反转模式"
-                )
+                ), context
 
             if reversal.get('bearish_reversal', False):
                 return TradingSignal(
@@ -230,9 +382,9 @@ class PriceActionAnalyzer:
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="强势看跌反转模式"
-                )
+                ), context
 
-        return None
+        return None, context
 
     @staticmethod
     def risk_management(signal: Optional[TradingSignal],
@@ -265,6 +417,264 @@ class PriceActionAnalyzer:
             return None
 
         return signal
+
+    # Al Brooks高级模式识别方法
+    @staticmethod
+    def _analyze_two_leg_pullback(bars: pd.DataFrame, current_bar: BarData) -> Optional[Dict[str, Any]]:
+        """分析二腿修正模式 - Al Brooks核心概念"""
+        if len(bars) < 10:
+            return None
+
+        highs = bars['high'].values
+        lows = bars['low'].values
+        closes = bars['close'].values
+
+        # 寻找最近的重要高低点
+        recent_highs = PriceActionAnalyzer._find_local_peaks(highs[-15:], window=2)
+        recent_lows = PriceActionAnalyzer._find_local_valleys(lows[-15:], window=2)
+
+        if len(recent_highs) < 2 or len(recent_lows) < 2:
+            return None
+
+        current_price = current_bar.close
+
+        # 检测上升趋势中的二腿回调
+        if len(recent_lows) >= 2:
+            # 两个连续的低点，第二个低点高于第一个低点（高低点）
+            if recent_lows[-1] > recent_lows[-2]:
+                # 检查当前价格是否从第二个低点开始反弹
+                if current_price > recent_lows[-1] * 1.005:  # 0.5%的反弹确认
+                    return {
+                        'type': 'bullish_two_leg',
+                        'first_low': recent_lows[-2],
+                        'second_low': recent_lows[-1],
+                        'current_price': current_price,
+                        'strength': min((current_price - recent_lows[-1]) / recent_lows[-1] * 100, 1.0)
+                    }
+
+        # 检测下降趋势中的二腿回调
+        if len(recent_highs) >= 2:
+            # 两个连续的高点，第二个高点低于第一个高点（低高点）
+            if recent_highs[-1] < recent_highs[-2]:
+                # 检查当前价格是否从第二个高点开始下跌
+                if current_price < recent_highs[-1] * 0.995:  # 0.5%的下跌确认
+                    return {
+                        'type': 'bearish_two_leg',
+                        'first_high': recent_highs[-2],
+                        'second_high': recent_highs[-1],
+                        'current_price': current_price,
+                        'strength': min((recent_highs[-1] - current_price) / recent_highs[-1] * 100, 1.0)
+                    }
+
+        return None
+
+    @staticmethod
+    def _analyze_wedge_pattern(bars: pd.DataFrame, current_bar: BarData) -> Optional[Dict[str, Any]]:
+        """分析楔形模式 - 收敛楔形和发散楔形"""
+        if len(bars) < 15:
+            return None
+
+        highs = bars['high'].values[-15:]
+        lows = bars['low'].values[-15:]
+
+        # 寻找高点和低点序列
+        high_peaks = PriceActionAnalyzer._find_local_peaks(highs, window=2)
+        low_valleys = PriceActionAnalyzer._find_local_valleys(lows, window=2)
+
+        if len(high_peaks) < 3 or len(low_valleys) < 3:
+            return None
+
+        # 计算高点趋势线斜率
+        high_slope = (high_peaks[-1] - high_peaks[-3]) / 2 if len(high_peaks) >= 3 else 0
+        # 计算低点趋势线斜率
+        low_slope = (low_valleys[-1] - low_valleys[-3]) / 2 if len(low_valleys) >= 3 else 0
+
+        # 收敛楔形：高点下降，低点上升
+        if high_slope < 0 and low_slope > 0:
+            convergence_ratio = abs(high_slope) + abs(low_slope)
+            if convergence_ratio > (highs.max() - lows.min()) * 0.01:  # 1%的收敛率
+                return {
+                    'type': 'converging_wedge',
+                    'high_slope': high_slope,
+                    'low_slope': low_slope,
+                    'convergence_strength': convergence_ratio,
+                    'breakout_direction': 'pending'
+                }
+
+        # 发散楔形：高点上升加速，低点下降加速
+        if high_slope > 0 and low_slope < 0:
+            divergence_ratio = abs(high_slope) + abs(low_slope)
+            if divergence_ratio > (highs.max() - lows.min()) * 0.015:  # 1.5%的发散率
+                return {
+                    'type': 'diverging_wedge',
+                    'high_slope': high_slope,
+                    'low_slope': low_slope,
+                    'divergence_strength': divergence_ratio,
+                    'reversal_potential': 'high'
+                }
+
+        return None
+
+    @staticmethod
+    def _analyze_test_pattern(bars: pd.DataFrame, current_bar: BarData) -> Optional[Dict[str, Any]]:
+        """分析测试模式 - 测试前期高点或低点"""
+        if len(bars) < 10:
+            return None
+
+        current_price = current_bar.close
+        highs = bars['high'].values
+        lows = bars['low'].values
+
+        # 寻找重要的支撑阻力位
+        recent_highs = PriceActionAnalyzer._find_local_peaks(highs[-20:], window=3)
+        recent_lows = PriceActionAnalyzer._find_local_valleys(lows[-20:], window=3)
+
+        test_tolerance = (highs.max() - lows.min()) * 0.003  # 0.3%的测试容差
+
+        # 测试前期高点（阻力位）
+        for i, high in enumerate(recent_highs):
+            if abs(current_price - high) <= test_tolerance:
+                # 检查是否是第二次或多次测试
+                test_count = sum(1 for h in recent_highs if abs(h - high) <= test_tolerance)
+                if test_count >= 2:
+                    return {
+                        'type': 'resistance_test',
+                        'test_level': high,
+                        'current_price': current_price,
+                        'test_count': test_count,
+                        'test_quality': 'strong' if test_count >= 3 else 'moderate'
+                    }
+
+        # 测试前期低点（支撑位）
+        for i, low in enumerate(recent_lows):
+            if abs(current_price - low) <= test_tolerance:
+                # 检查是否是第二次或多次测试
+                test_count = sum(1 for l in recent_lows if abs(l - low) <= test_tolerance)
+                if test_count >= 2:
+                    return {
+                        'type': 'support_test',
+                        'test_level': low,
+                        'current_price': current_price,
+                        'test_count': test_count,
+                        'test_quality': 'strong' if test_count >= 3 else 'moderate'
+                    }
+
+        return None
+
+    @staticmethod
+    def _analyze_trendline_break(bars: pd.DataFrame, current_bar: BarData) -> Optional[Dict[str, Any]]:
+        """分析微趋势线突破"""
+        if len(bars) < 10:
+            return None
+
+        highs = bars['high'].values[-10:]
+        lows = bars['low'].values[-10:]
+        current_price = current_bar.close
+
+        # 分析上升趋势线（连接低点）
+        low_points = PriceActionAnalyzer._find_local_valleys(lows, window=1)
+        if len(low_points) >= 2:
+            # 计算趋势线
+            trendline_slope = (low_points[-1] - low_points[-2]) / (len(low_points) - 1)
+            projected_trendline = low_points[-1] + trendline_slope
+
+            # 检查是否跌破上升趋势线
+            if current_price < projected_trendline * 0.995:  # 0.5%的突破确认
+                return {
+                    'type': 'uptrend_break',
+                    'trendline_value': projected_trendline,
+                    'current_price': current_price,
+                    'break_strength': (projected_trendline - current_price) / projected_trendline,
+                    'signal': 'bearish'
+                }
+
+        # 分析下降趋势线（连接高点）
+        high_points = PriceActionAnalyzer._find_local_peaks(highs, window=1)
+        if len(high_points) >= 2:
+            # 计算趋势线
+            trendline_slope = (high_points[-1] - high_points[-2]) / (len(high_points) - 1)
+            projected_trendline = high_points[-1] + trendline_slope
+
+            # 检查是否突破下降趋势线
+            if current_price > projected_trendline * 1.005:  # 0.5%的突破确认
+                return {
+                    'type': 'downtrend_break',
+                    'trendline_value': projected_trendline,
+                    'current_price': current_price,
+                    'break_strength': (current_price - projected_trendline) / projected_trendline,
+                    'signal': 'bullish'
+                }
+
+        return None
+
+    @staticmethod
+    def _analyze_failed_breakout(bars: pd.DataFrame, current_bar: BarData) -> Optional[Dict[str, Any]]:
+        """分析假突破模式 - Al Brooks重要概念"""
+        if len(bars) < 15:
+            return None
+
+        current_price = current_bar.close
+        highs = bars['high'].values
+        lows = bars['low'].values
+
+        # 寻找最近的重要支撑阻力位
+        recent_highs = PriceActionAnalyzer._find_local_peaks(highs[-15:], window=2)
+        recent_lows = PriceActionAnalyzer._find_local_valleys(lows[-15:], window=2)
+
+        if len(recent_highs) < 2 or len(recent_lows) < 2:
+            return None
+
+        # 检测向上假突破
+        for high in recent_highs:
+            # 检查是否有突破后快速回落的情况
+            bars_since_high = 0
+            max_penetration = 0
+            for i in range(len(bars) - 5, len(bars)):
+                if i >= 0 and i < len(bars):
+                    bar_high = highs[i] if i < len(highs) else current_bar.high
+                    if bar_high > high:
+                        penetration = (bar_high - high) / high
+                        max_penetration = max(max_penetration, penetration)
+                        bars_since_high = len(bars) - i
+
+            # 假突破条件：突破幅度小于2%，且在3根K线内回落到突破位以下
+            if (max_penetration > 0.001 and max_penetration < 0.02 and
+                bars_since_high <= 3 and current_price < high * 0.998):
+                return {
+                    'type': 'failed_upward_breakout',
+                    'resistance_level': high,
+                    'max_penetration': max_penetration,
+                    'current_price': current_price,
+                    'bars_since_break': bars_since_high,
+                    'signal': 'bearish_reversal'
+                }
+
+        # 检测向下假突破
+        for low in recent_lows:
+            # 检查是否有跌破后快速反弹的情况
+            bars_since_low = 0
+            max_penetration = 0
+            for i in range(len(bars) - 5, len(bars)):
+                if i >= 0 and i < len(bars):
+                    bar_low = lows[i] if i < len(lows) else current_bar.low
+                    if bar_low < low:
+                        penetration = (low - bar_low) / low
+                        max_penetration = max(max_penetration, penetration)
+                        bars_since_low = len(bars) - i
+
+            # 假突破条件：跌破幅度小于2%，且在3根K线内反弹到突破位以上
+            if (max_penetration > 0.001 and max_penetration < 0.02 and
+                bars_since_low <= 3 and current_price > low * 1.002):
+                return {
+                    'type': 'failed_downward_breakout',
+                    'support_level': low,
+                    'max_penetration': max_penetration,
+                    'current_price': current_price,
+                    'bars_since_break': bars_since_low,
+                    'signal': 'bullish_reversal'
+                }
+
+        return None
 
     # 私有辅助方法
     @staticmethod
@@ -580,6 +990,12 @@ class PriceActionAnalyzer:
             return "SIDEWAYS"
         elif market_structure == MarketStructure.BREAKOUT_ATTEMPT:
             return "BREAKOUT"
+        elif market_structure == MarketStructure.TWO_LEG_PULLBACK:
+            return "PULLBACK"
+        elif market_structure == MarketStructure.WEDGE_PATTERN:
+            return "WEDGE"
+        elif market_structure == MarketStructure.TEST_PATTERN:
+            return "TEST"
         else:
             return "UNKNOWN"
 

@@ -75,18 +75,12 @@ class StrategyEngine:
             if len(recent_bars) < 20:  # 数据不够，跳过
                 return None
 
-            # 1. 市场分析（纯函数）
-            market_context = PriceActionAnalyzer.market_analysis(recent_bars, bar_data)
+            # 集成的信号生成（包含市场分析、模式识别和信号生成）
+            signal, market_context = PriceActionAnalyzer.signal_generation(recent_bars, bar_data)
             self.current_context = market_context
 
             # 发布市场分析结果事件
             self._emit_market_analysis_update(market_context)
-
-            # 2. 模式识别（纯函数）
-            patterns = PriceActionAnalyzer.pattern_recognition(recent_bars, market_context)
-
-            # 4. 信号生成（纯函数）
-            signal = PriceActionAnalyzer.signal_generation(patterns, market_context, bar_data)
 
             # 5. 执行决策（包含风险管理）
             final_signal = ExecutionEngine.process_signal(signal, market_context)
