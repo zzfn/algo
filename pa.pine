@@ -1,11 +1,13 @@
 //@version=6
-indicator("K线计数器", shorttitle="K线计数", overlay=true, max_labels_count=500)
+indicator("price action", shorttitle="pa", overlay=true, max_labels_count=500)
 
 // 输入参数
 label_color = input.color(color.yellow, title="标签颜色")
 text_size = input.string("normal", title="文字大小", options=["tiny", "small", "normal", "large", "huge"])
 show_labels = input.bool(true, title="显示标签")
 show_every_n = input.int(1, title="每隔几根K线显示", minval=1, maxval=50)
+show_ema20 = input.bool(true, title="显示EMA20")
+ema20_color = input.color(color.blue, title="EMA20颜色")
 
 // 获取文字大小枚举值
 get_text_size(size_str) =>
@@ -16,6 +18,9 @@ get_text_size(size_str) =>
         "large" => size.large
         "huge" => size.huge
         => size.normal
+
+// 计算EMA20
+ema20 = ta.ema(close, 20)
 
 // 检测是否是新的交易日
 var int daily_bar_count = 0
@@ -33,6 +38,9 @@ else
 if show_labels and not na(close) and daily_bar_count % show_every_n == 0
     label_y = low - (high - low) * 0.3
     label.new(bar_index, label_y, str.tostring(daily_bar_count), style=label.style_none, color=color.new(color.white, 100), textcolor=label_color, size=get_text_size(text_size))
+
+// 绘制EMA20
+plot(show_ema20 ? ema20 : na, color=ema20_color, linewidth=2, title="EMA20")
 
 // 在图表上绘制一条分隔线来标记新的交易日
 bgcolor(is_new_day ? color.new(color.gray, 90) : na, title="新交易日背景")
