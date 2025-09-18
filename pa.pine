@@ -1,428 +1,401 @@
 //@version=6
-indicator("Al Brooks价格行为学优化版", shorttitle="AB-PA", overlay=true, max_labels_count=500)
+indicator("Al Brooks价格行为学优化版", shorttitle="AB-PA-OPT", overlay=true, max_labels_count=500)
 
-// 输入参数
-label_color = input.color(color.yellow, title="标签颜色")
-text_size = input.string("normal", title="文字大小", options=["tiny", "small", "normal", "large", "huge"])
+// =============================================================================
+//                              输入参数区域
+// =============================================================================
+
+// 显示控制
 show_labels = input.bool(true, title="显示标签")
-show_every_n = input.int(1, title="每隔几根K线显示", minval=1, maxval=50)
+show_every_n = input.int(3, title="每隔几根K线显示", minval=1, maxval=10)
+label_size = input.string("small", title="标签大小", options=["tiny", "small", "normal", "large"])
 show_ema20 = input.bool(true, title="显示EMA20")
-ema20_color = input.color(color.blue, title="EMA20颜色")
 
-// Al Brooks核心参数
+// Al Brooks核心模式
 show_pin_bars = input.bool(true, title="显示Pin Bar")
-pin_bar_color = input.color(color.red, title="Pin Bar颜色")
 show_inside_bars = input.bool(true, title="显示Inside Bar")
-inside_bar_color = input.color(color.orange, title="Inside Bar颜色")
 show_outside_bars = input.bool(true, title="显示Outside Bar")
-outside_bar_color = input.color(color.purple, title="Outside Bar颜色")
 show_trend_bars = input.bool(true, title="显示趋势棒")
-trend_bar_color = input.color(color.green, title="趋势棒颜色")
 show_two_bar_reversal = input.bool(true, title="显示两棒反转")
-two_bar_reversal_color = input.color(color.fuchsia, title="两棒反转颜色")
-show_support_resistance = input.bool(true, title="显示支撑阻力线")
-pin_bar_threshold = input.float(0.6, title="Pin Bar阈值", minval=0.1, maxval=0.9, step=0.1)
-trend_bar_threshold = input.float(0.7, title="趋势棒阈值", minval=0.1, maxval=0.9, step=0.1)
-
-// 高级Al Brooks概念
 show_pullbacks = input.bool(true, title="显示回调")
-pullback_color = input.color(color.yellow, title="回调颜色")
-show_trading_range = input.bool(true, title="显示交易区间")
-trading_range_color = input.color(color.gray, title="交易区间颜色")
-show_climax = input.bool(true, title="显示高潮")
-climax_color = input.color(color.maroon, title="高潮颜色")
-show_always_in = input.bool(true, title="显示Always In方向")
-always_in_lookback = input.int(20, title="Always In回看周期", minval=10, maxval=50)
 show_breakouts = input.bool(true, title="显示突破")
-breakout_color = input.color(color.lime, title="突破颜色")
+show_climax = input.bool(true, title="显示高潮")
+
+// 新增Al Brooks高级概念
+show_micro_channel = input.bool(true, title="显示微通道")
+show_wedge = input.bool(true, title="显示楔形")
+show_strong_second_leg = input.bool(true, title="显示强势二腿")
+show_measured_move = input.bool(true, title="显示测量移动")
+
+// 参数设置
+pin_bar_threshold = input.float(0.6, title="Pin Bar阈值", minval=0.3, maxval=0.8)
+trend_bar_threshold = input.float(0.7, title="趋势棒阈值", minval=0.5, maxval=0.9)
+
+// 市场状态
+show_always_in = input.bool(true, title="显示Always In方向")
+show_trading_range = input.bool(true, title="显示交易区间")
+show_support_resistance = input.bool(true, title="显示支撑阻力")
 
 // =============================================================================
-//                              工具函数区域
+//                              核心计算区域
 // =============================================================================
 
-// 获取文字大小枚举值
-get_text_size(size_str) =>
-    switch size_str
-        "tiny" => size.tiny
-        "small" => size.small
-        "normal" => size.normal
-        "large" => size.large
-        "huge" => size.huge
-        => size.normal
-
-// 公共K线指标计算函数
-get_candle_metrics() =>
-    body_size = math.abs(close - open)
-    range_size = high - low
-    upper_wick = high - math.max(open, close)
-    lower_wick = math.min(open, close) - low
-    body_ratio = range_size > 0 ? body_size / range_size : 0
-    upper_wick_ratio = range_size > 0 ? upper_wick / range_size : 0
-    lower_wick_ratio = range_size > 0 ? lower_wick / range_size : 0
-    [body_size, range_size, body_ratio, upper_wick_ratio, lower_wick_ratio]
-
-// 计算EMA20
+// 基础指标
 ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+
+// 缓存K线指标避免重复计算
+body_size = math.abs(close - open)
+range_size = high - low
+body_ratio = range_size > 0 ? body_size / range_size : 0
+upper_wick_ratio = range_size > 0 ? (high - math.max(open, close)) / range_size : 0
+lower_wick_ratio = range_size > 0 ? (math.min(open, close) - low) / range_size : 0
+
+is_bull_bar = close > open
+is_bear_bar = close < open
 
 // =============================================================================
-//                         优化的Al Brooks价格行为学函数
+//                          优化的价格行为检测函数
 // =============================================================================
 
-// 优化Pin Bar检测 - 考虑趋势背景
-is_pin_bar() =>
-    [body_size, range_size, body_ratio, upper_wick_ratio, lower_wick_ratio] = get_candle_metrics()
+// 优化Pin Bar检测
+detect_pin_bar() =>
+    basic_bull_pin = body_ratio < (1 - pin_bar_threshold) and lower_wick_ratio > pin_bar_threshold and upper_wick_ratio < 0.25
+    basic_bear_pin = body_ratio < (1 - pin_bar_threshold) and upper_wick_ratio > pin_bar_threshold and lower_wick_ratio < 0.25
 
-    // 基础Pin Bar条件
-    basic_bullish_pin = body_ratio < (1 - pin_bar_threshold) and lower_wick_ratio > pin_bar_threshold and upper_wick_ratio < 0.2
-    basic_bearish_pin = body_ratio < (1 - pin_bar_threshold) and upper_wick_ratio > pin_bar_threshold and lower_wick_ratio < 0.2
+    // 考虑趋势背景
+    uptrend_context = close > ema20 and ema20 > ema20[5]
+    downtrend_context = close < ema20 and ema20 < ema20[5]
 
-    // Al Brooks理论：考虑趋势背景和位置
-    price_above_ema = close > ema20
-    price_below_ema = close < ema20
-    recent_high = ta.highest(high, 20)
-    recent_low = ta.lowest(low, 20)
-    near_high = high >= recent_high * 0.98
-    near_low = low <= recent_low * 1.02
+    valid_bull_pin = basic_bull_pin and (uptrend_context or low <= ta.lowest(low, 20) * 1.02)
+    valid_bear_pin = basic_bear_pin and (downtrend_context or high >= ta.highest(high, 20) * 0.98)
 
-    // 在趋势方向的Pin Bar更有效
-    valid_bullish_pin = basic_bullish_pin and (price_above_ema or near_low)
-    valid_bearish_pin = basic_bearish_pin and (price_below_ema or near_high)
-
-    [valid_bullish_pin or valid_bearish_pin, valid_bullish_pin, valid_bearish_pin]
+    [valid_bull_pin or valid_bear_pin, valid_bull_pin, valid_bear_pin]
 
 // Inside Bar检测
-is_inside_bar() =>
+detect_inside_bar() =>
     high < high[1] and low > low[1]
 
 // Outside Bar检测
-is_outside_bar() =>
+detect_outside_bar() =>
     high > high[1] and low < low[1]
 
 // 优化趋势棒检测
-is_trend_bar() =>
-    [body_size, range_size, body_ratio, upper_wick_ratio, lower_wick_ratio] = get_candle_metrics()
-
-    if range_size == 0
-        [false, false, false]
-    else
-        is_strong_trend_bar = body_ratio > trend_bar_threshold
-        is_bullish_trend_bar = is_strong_trend_bar and close > open
-        is_bearish_trend_bar = is_strong_trend_bar and close < open
-        [is_strong_trend_bar, is_bullish_trend_bar, is_bearish_trend_bar]
+detect_trend_bar() =>
+    strong_trend_bar = body_ratio > trend_bar_threshold and range_size > ta.atr(14) * 0.5
+    bull_trend_bar = strong_trend_bar and is_bull_bar
+    bear_trend_bar = strong_trend_bar and is_bear_bar
+    [strong_trend_bar, bull_trend_bar, bear_trend_bar]
 
 // 两棒反转检测
-is_two_bar_reversal() =>
-    // 看涨两棒反转：前一根下跌棒+当前上涨棒突破前根高点
-    is_bullish_two_bar = close[1] < open[1] and close > open and close > high[1]
-    // 看跌两棒反转：前一根上涨棒+当前下跌棒突破前根低点
-    is_bearish_two_bar = close[1] > open[1] and close < open and close < low[1]
+detect_two_bar_reversal() =>
+    bull_2br = is_bear_bar[1] and is_bull_bar and close > high[1]
+    bear_2br = is_bull_bar[1] and is_bear_bar and close < low[1]
+    [bull_2br or bear_2br, bull_2br, bear_2br]
 
-    [is_bullish_two_bar or is_bearish_two_bar, is_bullish_two_bar, is_bearish_two_bar]
-
-// 改进的回调检测 - 考虑趋势强度和深度
-is_pullback() =>
-    // 检查是否在强趋势中
+// 改进回调检测 - 修复除零风险
+detect_pullback() =>
     ema_slope = ema20 - ema20[5]
     strong_uptrend = close > ema20 and ema_slope > 0
     strong_downtrend = close < ema20 and ema_slope < 0
 
-    // 回调深度检查（不应该太深）
-    recent_swing_high = ta.highest(high, 10)
-    recent_swing_low = ta.lowest(low, 10)
-    pullback_depth = (recent_swing_high - close) / (recent_swing_high - recent_swing_low)
+    // 安全的深度计算
+    swing_high = ta.highest(high, 10)
+    swing_low = ta.lowest(low, 10)
+    swing_range = swing_high - swing_low
+    pullback_depth = swing_range > 0 ? (swing_high - close) / swing_range : 0
 
-    // 在多头趋势中的浅回调
     bull_pullback = strong_uptrend and close < close[1] and close[1] < close[2] and pullback_depth < 0.5 and low > ema20
-    // 在空头趋势中的浅回调
     bear_pullback = strong_downtrend and close > close[1] and close[1] > close[2] and pullback_depth < 0.5 and high < ema20
 
     [bull_pullback or bear_pullback, bull_pullback, bear_pullback]
 
-// 改进的Always In方向 - 基于市场结构
-get_always_in_direction() =>
-    // 检查高低点结构
-    higher_highs = 0
-    lower_lows = 0
-    higher_lows = 0
-    lower_highs = 0
+// 优化Always In方向 - 使用更简洁的逻辑
+detect_always_in() =>
+    bars_above_ema = ta.barssince(close < ema20)
+    bars_below_ema = ta.barssince(close > ema20)
 
-    for i = 1 to 10
-        if high[i] > high[i+1]
-            higher_highs += 1
-        if low[i] < low[i+1]
-            lower_lows += 1
-        if low[i] > low[i+1]
-            higher_lows += 1
-        if high[i] < high[i+1]
-            lower_highs += 1
+    ema_rising = ema20 > ema20[5] and ema20[5] > ema20[10]
+    ema_falling = ema20 < ema20[5] and ema20[5] < ema20[10]
 
-    // 检查价格与EMA关系
-    price_above_ema_count = 0
-    for i = 0 to 10
-        if close[i] > ema20[i]
-            price_above_ema_count += 1
+    always_in_long = bars_above_ema > 10 and ema_rising
+    always_in_short = bars_below_ema > 10 and ema_falling
 
-    // Always In Long: 高高点、高低点结构 + 价格持续在EMA上方
-    if higher_highs >= 3 and higher_lows >= 2 and price_above_ema_count >= 8
-        1
-    // Always In Short: 低高点、低低点结构 + 价格持续在EMA下方
-    else if lower_highs >= 3 and lower_lows >= 2 and price_above_ema_count <= 3
-        -1
-    else
-        0
+    always_in_long ? 1 : always_in_short ? -1 : 0
 
-// 改进的高潮检测 - 添加疲态信号
-is_buy_climax() =>
-    // 检查连续上涨棒
-    consecutive_bull_bars = 0
-    strong_bars = 0
-    total_range = 0.0
+// 高潮检测 - 简化逻辑
+detect_climax() =>
+    // 检测连续强势棒
+    strong_bull_bars = 0
+    strong_bear_bars = 0
 
-    for i = 1 to 5
-        if close[i] > open[i]
-            consecutive_bull_bars += 1
-            body_size = math.abs(close[i] - open[i])
-            range_size = high[i] - low[i]
-            if range_size > 0 and body_size / range_size > 0.7
-                strong_bars += 1
-            total_range += range_size
-        else
-            break
+    for i = 0 to 4
+        if close[i] > open[i] and (close[i] - open[i]) > (high[i] - low[i]) * 0.7
+            strong_bull_bars += 1
+        if close[i] < open[i] and (open[i] - close[i]) > (high[i] - low[i]) * 0.7
+            strong_bear_bars += 1
 
-    // 当前K线疲态：实体小、上影线长、成交量减少迹象
-    [body_size, range_size, body_ratio, upper_wick_ratio, lower_wick_ratio] = get_candle_metrics()
-    current_weak = range_size > 0 and body_ratio < 0.3 and upper_wick_ratio > 0.4
-    volume_declining = high > high[1] // 新高但可能成交量不足（无成交量数据时的替代）
+    // 当前疲态
+    current_weak = body_ratio < 0.3 and (upper_wick_ratio > 0.4 or lower_wick_ratio > 0.4)
 
-    // 高潮条件：连续3根以上强势上涨棒 + 当前疲态
-    consecutive_bull_bars >= 3 and strong_bars >= 2 and current_weak and volume_declining
+    buy_climax = strong_bull_bars >= 3 and current_weak and upper_wick_ratio > 0.4
+    sell_climax = strong_bear_bars >= 3 and current_weak and lower_wick_ratio > 0.4
 
-is_sell_climax() =>
-    // 检查连续下跌棒
-    consecutive_bear_bars = 0
-    strong_bars = 0
+    [buy_climax or sell_climax, buy_climax, sell_climax]
 
-    for i = 1 to 5
-        if close[i] < open[i]
-            consecutive_bear_bars += 1
-            body_size = math.abs(close[i] - open[i])
-            range_size = high[i] - low[i]
-            if range_size > 0 and body_size / range_size > 0.7
-                strong_bars += 1
-        else
-            break
-
-    // 当前K线疲态
-    [body_size, range_size, body_ratio, upper_wick_ratio, lower_wick_ratio] = get_candle_metrics()
-    current_weak = range_size > 0 and body_ratio < 0.3 and lower_wick_ratio > 0.4
-    volume_declining = low < low[1] // 新低但可能成交量不足
-
-    consecutive_bear_bars >= 3 and strong_bars >= 2 and current_weak and volume_declining
-
-// 改进的突破检测
-is_breakout() =>
+// 突破检测 - 增强版
+detect_breakout() =>
     lookback = 20
-    prev_high = ta.highest(high[1], lookback)
-    prev_low = ta.lowest(low[1], lookback)
+    resistance = ta.highest(high[1], lookback)
+    support = ta.lowest(low[1], lookback)
 
-    // 强势突破条件
-    bull_breakout = close > prev_high and close[1] <= prev_high and close > open and (close - open) > (high - low) * 0.6
-    bear_breakout = close < prev_low and close[1] >= prev_low and close < open and (open - close) > (high - low) * 0.6
+    bull_bo = close > resistance and close[1] <= resistance and body_ratio > 0.6 and is_bull_bar
+    bear_bo = close < support and close[1] >= support and body_ratio > 0.6 and is_bear_bar
 
-    [bull_breakout or bear_breakout, bull_breakout, bear_breakout]
+    [bull_bo or bear_bo, bull_bo, bear_bo]
 
-// 改进的交易区间检测 - 增加多次测试概念
-is_trading_range() =>
-    range_bars = 30
-    recent_high = ta.highest(high, range_bars)
-    recent_low = ta.lowest(low, range_bars)
-    range_size = recent_high - recent_low
+// 交易区间检测 - 简化版
+detect_trading_range() =>
+    range_high = ta.highest(high, 30)
+    range_low = ta.lowest(low, 30)
+    range_pct = range_high > 0 ? (range_high - range_low) / range_high : 0
 
-    if range_size == 0
-        false
-    else
-        // 检查多次测试
-        upper_tests = 0
-        lower_tests = 0
+    // 横盘整理：区间小且EMA平缓
+    sideways = range_pct < 0.15 and math.abs(ema20 - ema20[10]) / ema20 < 0.02
+    sideways
 
-        for i = 0 to range_bars - 1
-            // 测试上边界（接近最高点）
-            if high[i] >= recent_high * 0.95
-                upper_tests += 1
-            // 测试下边界（接近最低点）
-            if low[i] <= recent_low * 1.05
-                lower_tests += 1
+// 新增：微通道检测
+detect_micro_channel() =>
+    // 连续小实体K线，在EMA附近窄幅震荡
+    small_bodies = 0
+    near_ema = 0
 
-        // 至少2次测试上边界和2次测试下边界，且价格在区间内横盘
-        upper_tests >= 2 and lower_tests >= 2 and math.abs(recent_high - recent_low) / recent_low < 0.15
+    for i = 0 to 9
+        if math.abs(close[i] - open[i]) < ta.atr(14) * 0.3
+            small_bodies += 1
+        if math.abs(close[i] - ema20[i]) < ta.atr(14) * 0.5
+            near_ema += 1
 
-// 改进的支撑阻力 - 增加测试概念
-get_support_resistance() =>
-    // 使用pivot点识别关键位
-    pivot_length = 10
-    pivot_high = ta.pivothigh(high, pivot_length, pivot_length)
-    pivot_low = ta.pivotlow(low, pivot_length, pivot_length)
+    micro_channel = small_bodies >= 7 and near_ema >= 8
+    micro_channel
 
-    // 存储重要位置
-    var resistance_levels = array.new<float>()
-    var support_levels = array.new<float>()
+// 新增：楔形检测
+detect_wedge() =>
+    // 简化的楔形检测：连续收敛的高低点
+    recent_highs = array.from(high[4], high[3], high[2], high[1], high)
+    recent_lows = array.from(low[4], low[3], low[2], low[1], low)
 
-    if not na(pivot_high)
-        array.push(resistance_levels, pivot_high)
-        if array.size(resistance_levels) > 5
-            array.shift(resistance_levels)
+    high_trend = ta.linreg(high, 5, 0) - ta.linreg(high, 5, 4)
+    low_trend = ta.linreg(low, 5, 0) - ta.linreg(low, 5, 4)
 
-    if not na(pivot_low)
-        array.push(support_levels, pivot_low)
-        if array.size(support_levels) > 5
-            array.shift(support_levels)
+    // 上升楔形：高点上升，低点上升更快
+    rising_wedge = high_trend > 0 and low_trend > 0 and low_trend > high_trend
+    // 下降楔形：高点下降，低点下降更快
+    falling_wedge = high_trend < 0 and low_trend < 0 and math.abs(low_trend) > math.abs(high_trend)
 
-    // 找到最相关的支撑阻力位并检查测试次数
-    current_resistance = ta.highest(high, 50)
-    current_support = ta.lowest(low, 50)
+    [rising_wedge or falling_wedge, rising_wedge, falling_wedge]
 
-    // 检查当前是否接近关键位且发生测试
-    near_resistance = high >= current_resistance * 0.98
-    near_support = low <= current_support * 1.02
+// 新增：强势二腿检测
+detect_strong_second_leg() =>
+    // 检测回调后的强势突破
+    pullback_bars = ta.barssince(close[1] > close and close > close[1])
+    breakout_strength = body_ratio > 0.7 and range_size > ta.atr(14)
 
-    [near_resistance, near_support, current_resistance, current_support]
+    // 多头强势二腿
+    bull_second_leg = pullback_bars >= 3 and pullback_bars <= 10 and is_bull_bar and breakout_strength and close > ta.highest(high[1], 10)
+    // 空头强势二腿
+    bear_second_leg = pullback_bars >= 3 and pullback_bars <= 10 and is_bear_bar and breakout_strength and close < ta.lowest(low[1], 10)
 
-// =============================================================================
-//                           信号计算和显示区域
-// =============================================================================
+    [bull_second_leg or bear_second_leg, bull_second_leg, bear_second_leg]
 
-// 计算所有信号
-[pin_bar_signal, bullish_pin, bearish_pin] = is_pin_bar()
-inside_bar_signal = is_inside_bar()
-outside_bar_signal = is_outside_bar()
-[trend_bar_signal, bullish_trend, bearish_trend] = is_trend_bar()
-[two_bar_signal, bullish_two_bar, bearish_two_bar] = is_two_bar_reversal()
-[pullback_signal, bull_pullback, bear_pullback] = is_pullback()
-always_in_direction = get_always_in_direction()
-trading_range_signal = is_trading_range()
-buy_climax_signal = is_buy_climax()
-sell_climax_signal = is_sell_climax()
-[breakout_signal, bull_breakout, bear_breakout] = is_breakout()
-[near_resistance, near_support, resistance_level, support_level] = get_support_resistance()
+// 新增：测量移动检测
+detect_measured_move() =>
+    // 基于ATR的测量移动目标
+    atr_value = ta.atr(14)
 
-// =============================================================================
-//                               标签显示区域
-// =============================================================================
+    // 寻找显著移动的起点
+    significant_move_up = close > close[5] and (close - close[5]) > atr_value * 2
+    significant_move_down = close < close[5] and (close[5] - close) > atr_value * 2
 
-// Pin Bar标记
-if show_pin_bars and pin_bar_signal
-    pin_label_text = bullish_pin ? "看涨Pin" : "看跌Pin"
-    pin_label_y = bullish_pin ? low - (high - low) * 0.5 : high + (high - low) * 0.3
-    pin_style = bullish_pin ? label.style_label_up : label.style_label_down
-    label.new(bar_index, pin_label_y, pin_label_text, style=pin_style, color=pin_bar_color, textcolor=color.white, size=size.small)
+    // 测量移动目标位
+    mm_target_up = significant_move_up ? close + (close - close[5]) : na
+    mm_target_down = significant_move_down ? close - (close[5] - close) : na
 
-// Inside Bar标记
-if show_inside_bars and inside_bar_signal
-    label.new(bar_index, high + (high - low) * 0.1, "IB", style=label.style_circle, color=inside_bar_color, textcolor=color.white, size=size.small)
+    [not na(mm_target_up) or not na(mm_target_down), not na(mm_target_up), not na(mm_target_down)]
 
-// Outside Bar标记
-if show_outside_bars and outside_bar_signal
-    label.new(bar_index, high + (high - low) * 0.1, "OB", style=label.style_diamond, color=outside_bar_color, textcolor=color.white, size=size.small)
+// 支撑阻力检测 - 完全重写避免内存问题
+detect_support_resistance() =>
+    // 使用pivot点而非数组
+    pivot_high = ta.pivothigh(5, 5)
+    pivot_low = ta.pivotlow(5, 5)
 
-// 趋势棒标记
-if show_trend_bars and trend_bar_signal
-    trend_label_text = bullish_trend ? "强多" : "强空"
-    trend_label_y = bullish_trend ? low - (high - low) * 0.2 : high + (high - low) * 0.2
-    trend_style = bullish_trend ? label.style_triangleup : label.style_triangledown
-    label.new(bar_index, trend_label_y, trend_label_text, style=trend_style, color=trend_bar_color, textcolor=color.white, size=size.small)
+    // 当前关键位
+    resistance = ta.highest(high, 50)
+    support = ta.lowest(low, 50)
 
-// 两棒反转标记
-if show_two_bar_reversal and two_bar_signal
-    reversal_label_text = bullish_two_bar ? "2BR↑" : "2BR↓"
-    reversal_label_y = bullish_two_bar ? low - (high - low) * 0.4 : high + (high - low) * 0.4
-    reversal_style = bullish_two_bar ? label.style_arrowup : label.style_arrowdown
-    label.new(bar_index, reversal_label_y, reversal_label_text, style=reversal_style, color=two_bar_reversal_color, textcolor=color.white, size=size.normal)
+    // 接近测试
+    near_resistance = high >= resistance * 0.98
+    near_support = low <= support * 1.02
 
-// 回调标记
-if show_pullbacks and pullback_signal
-    pullback_label_text = bull_pullback ? "回调↑" : "回调↓"
-    pullback_label_y = bull_pullback ? low - (high - low) * 0.6 : high + (high - low) * 0.5
-    pullback_style = bull_pullback ? label.style_label_up : label.style_label_down
-    label.new(bar_index, pullback_label_y, pullback_label_text, style=pullback_style, color=pullback_color, textcolor=color.black, size=size.small)
-
-// 高潮标记
-if show_climax and (buy_climax_signal or sell_climax_signal)
-    climax_label_text = buy_climax_signal ? "买入高潮" : "卖出高潮"
-    climax_label_y = buy_climax_signal ? high + (high - low) * 0.6 : low - (high - low) * 0.6
-    label.new(bar_index, climax_label_y, climax_label_text, style=label.style_flag, color=climax_color, textcolor=color.white, size=size.normal)
-
-// 突破标记
-if show_breakouts and breakout_signal
-    breakout_label_text = bull_breakout ? "突破↑" : "突破↓"
-    breakout_label_y = bull_breakout ? high + (high - low) * 0.2 : low - (high - low) * 0.2
-    breakout_style = bull_breakout ? label.style_triangleup : label.style_triangledown
-    label.new(bar_index, breakout_label_y, breakout_label_text, style=breakout_style, color=breakout_color, textcolor=color.black, size=size.small)
+    [near_resistance, near_support, resistance, support]
 
 // =============================================================================
-//                          图表绘制和背景色区域
+//                              信号计算区域
 // =============================================================================
 
-// 绘制EMA20
-plot(show_ema20 ? ema20 : na, color=ema20_color, linewidth=2, title="EMA20")
+// 计算所有信号 - 使用缓存避免重复计算
+[pin_signal, bull_pin, bear_pin] = detect_pin_bar()
+inside_signal = detect_inside_bar()
+outside_signal = detect_outside_bar()
+[trend_signal, bull_trend, bear_trend] = detect_trend_bar()
+[two_bar_signal, bull_2br, bear_2br] = detect_two_bar_reversal()
+[pullback_signal, bull_pullback, bear_pullback] = detect_pullback()
+always_in_direction = detect_always_in()
+[climax_signal, buy_climax, sell_climax] = detect_climax()
+[breakout_signal, bull_breakout, bear_breakout] = detect_breakout()
+trading_range_signal = detect_trading_range()
 
-// 绘制支撑阻力线
-plot(show_support_resistance ? resistance_level : na, title="阻力位", color=color.red, style=plot.style_line, linewidth=1)
-plot(show_support_resistance ? support_level : na, title="支撑位", color=color.green, style=plot.style_line, linewidth=1)
-
-// Always In背景色
-always_in_bgcolor = show_always_in and always_in_direction == 1 ? color.new(color.blue, 95) :
-                   show_always_in and always_in_direction == -1 ? color.new(color.orange, 95) : na
-
-// 交易区间背景色
-trading_range_bgcolor = show_trading_range and trading_range_signal ? color.new(trading_range_color, 90) : na
-
-// 最终背景色
-final_bgcolor = na(trading_range_bgcolor) ? always_in_bgcolor : trading_range_bgcolor
-bgcolor(final_bgcolor, title="Al Brooks市场状态")
+// 新增信号
+micro_channel_signal = detect_micro_channel()
+[wedge_signal, rising_wedge, falling_wedge] = detect_wedge()
+[second_leg_signal, bull_second_leg, bear_second_leg] = detect_strong_second_leg()
+[mm_signal, mm_up, mm_down] = detect_measured_move()
+[near_resistance, near_support, resistance_level, support_level] = detect_support_resistance()
 
 // =============================================================================
-//                              信息表格显示
+//                              标签显示区域
 // =============================================================================
-if barstate.islast
-    var table info_table = table.new(position.top_right, 2, 6, bgcolor=color.new(color.white, 80), border_width=1)
+
+// 优化标签显示 - 减少频率避免混乱
+show_this_bar = bar_index % show_every_n == 0
+
+get_label_size() =>
+    switch label_size
+        "tiny" => size.tiny
+        "small" => size.small
+        "normal" => size.normal
+        "large" => size.large
+        => size.small
+
+label_text_size = get_label_size()
+
+// Pin Bar标签
+if show_pin_bars and pin_signal and show_labels and show_this_bar
+    pin_text = bull_pin ? "Pin↑" : "Pin↓"
+    pin_y = bull_pin ? low * 0.998 : high * 1.002
+    pin_style = bull_pin ? label.style_triangleup : label.style_triangledown
+    pin_color = bull_pin ? color.lime : color.red
+    label.new(bar_index, pin_y, pin_text, style=pin_style, color=pin_color, textcolor=color.white, size=label_text_size)
+
+// Inside Bar标签
+if show_inside_bars and inside_signal and show_labels and show_this_bar
+    label.new(bar_index, high * 1.001, "IB", style=label.style_circle, color=color.orange, textcolor=color.white, size=label_text_size)
+
+// Outside Bar标签
+if show_outside_bars and outside_signal and show_labels and show_this_bar
+    label.new(bar_index, high * 1.001, "OB", style=label.style_diamond, color=color.purple, textcolor=color.white, size=label_text_size)
+
+// 趋势棒标签
+if show_trend_bars and trend_signal and show_labels and show_this_bar
+    trend_text = bull_trend ? "强多" : "强空"
+    trend_y = bull_trend ? low * 0.997 : high * 1.003
+    trend_style = bull_trend ? label.style_arrowup : label.style_arrowdown
+    label.new(bar_index, trend_y, trend_text, style=trend_style, color=color.blue, textcolor=color.white, size=label_text_size)
+
+// 两棒反转标签
+if show_two_bar_reversal and two_bar_signal and show_labels and show_this_bar
+    tbr_text = bull_2br ? "2BR↑" : "2BR↓"
+    tbr_y = bull_2br ? low * 0.996 : high * 1.004
+    label.new(bar_index, tbr_y, tbr_text, style=label.style_flag, color=color.yellow, textcolor=color.black, size=label_text_size)
+
+// 回调标签
+if show_pullbacks and pullback_signal and show_labels and show_this_bar
+    pb_text = bull_pullback ? "回调买入" : "回调卖出"
+    pb_y = bull_pullback ? low * 0.995 : high * 1.005
+    label.new(bar_index, pb_y, pb_text, color=color.gray, textcolor=color.white, size=label_text_size)
+
+// 突破标签
+if show_breakouts and breakout_signal and show_labels and show_this_bar
+    bo_text = bull_breakout ? "突破↑" : "突破↓"
+    bo_y = bull_breakout ? high * 1.002 : low * 0.998
+    bo_color = bull_breakout ? color.lime : color.red
+    label.new(bar_index, bo_y, bo_text, style=label.style_triangleup, color=bo_color, textcolor=color.white, size=label_text_size)
+
+// 高潮标签
+if show_climax and climax_signal and show_labels and show_this_bar
+    climax_text = buy_climax ? "买入高潮" : "卖出高潮"
+    climax_y = buy_climax ? high * 1.006 : low * 0.994
+    label.new(bar_index, climax_y, climax_text, style=label.style_xcross, color=color.maroon, textcolor=color.white, size=label_text_size)
+
+// 新增模式标签
+if show_micro_channel and micro_channel_signal and show_labels and show_this_bar
+    label.new(bar_index, (high + low) / 2, "微通道", color=color.gray, textcolor=color.white, size=label_text_size)
+
+if show_wedge and wedge_signal and show_labels and show_this_bar
+    wedge_text = rising_wedge ? "上升楔形" : "下降楔形"
+    wedge_color = rising_wedge ? color.orange : color.blue
+    label.new(bar_index, high * 1.003, wedge_text, color=wedge_color, textcolor=color.white, size=label_text_size)
+
+if show_strong_second_leg and second_leg_signal and show_labels and show_this_bar
+    ssl_text = bull_second_leg ? "强势二腿↑" : "强势二腿↓"
+    ssl_y = bull_second_leg ? low * 0.994 : high * 1.006
+    ssl_color = bull_second_leg ? color.lime : color.red
+    label.new(bar_index, ssl_y, ssl_text, color=ssl_color, textcolor=color.white, size=label_text_size)
+
+// =============================================================================
+//                              图表绘制区域
+// =============================================================================
+
+// 绘制EMA
+plot(show_ema20 ? ema20 : na, color=color.blue, linewidth=2, title="EMA20")
+
+// 绘制支撑阻力
+plot(show_support_resistance ? resistance_level : na, color=color.red, linewidth=1, title="阻力位")
+plot(show_support_resistance ? support_level : na, color=color.green, linewidth=1, title="支撑位")
+
+// 背景色
+bgcolor_always_in = show_always_in and always_in_direction == 1 ? color.new(color.blue, 97) :
+                   show_always_in and always_in_direction == -1 ? color.new(color.orange, 97) : na
+
+bgcolor_range = show_trading_range and trading_range_signal ? color.new(color.gray, 95) : na
+
+final_bgcolor = na(bgcolor_range) ? bgcolor_always_in : bgcolor_range
+bgcolor(final_bgcolor)
+
+// =============================================================================
+//                              信息面板
+// =============================================================================
+
+if barstate.islast and show_labels
+    var info_table = table.new(position.top_right, 2, 8, bgcolor=color.new(color.white, 85), border_width=1)
 
     // Always In状态
-    always_in_text = always_in_direction == 1 ? "Always In Long" : always_in_direction == -1 ? "Always In Short" : "中性"
-    always_in_color = always_in_direction == 1 ? color.blue : always_in_direction == -1 ? color.orange : color.gray
+    ai_text = always_in_direction == 1 ? "Always Long" : always_in_direction == -1 ? "Always Short" : "中性"
+    ai_color = always_in_direction == 1 ? color.blue : always_in_direction == -1 ? color.orange : color.gray
     table.cell(info_table, 0, 0, "Always In:", text_color=color.black, text_size=size.small)
-    table.cell(info_table, 1, 0, always_in_text, text_color=always_in_color, text_size=size.normal)
+    table.cell(info_table, 1, 0, ai_text, text_color=ai_color, text_size=size.small)
 
     // 市场状态
-    market_state = trading_range_signal ? "交易区间" : "趋势市场"
-    market_color = trading_range_signal ? color.gray : color.purple
+    market_text = trading_range_signal ? "区间震荡" : "趋势行情"
     table.cell(info_table, 0, 1, "市场状态:", text_color=color.black, text_size=size.small)
-    table.cell(info_table, 1, 1, market_state, text_color=market_color, text_size=size.normal)
+    table.cell(info_table, 1, 1, market_text, text_color=color.blue, text_size=size.small)
 
     // 支撑阻力状态
-    sr_text = near_resistance ? "接近阻力" : near_support ? "接近支撑" : "正常"
+    sr_text = near_resistance ? "近阻力位" : near_support ? "近支撑位" : "正常区间"
     sr_color = near_resistance ? color.red : near_support ? color.green : color.gray
-    table.cell(info_table, 0, 2, "支撑阻力:", text_color=color.black, text_size=size.small)
-    table.cell(info_table, 1, 2, sr_text, text_color=sr_color, text_size=size.normal)
+    table.cell(info_table, 0, 2, "关键位:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 2, sr_text, text_color=sr_color, text_size=size.small)
 
-    // 当前信号
-    current_signals = ""
-    if pin_bar_signal
-        current_signals += "Pin "
-    if inside_bar_signal
-        current_signals += "IB "
-    if outside_bar_signal
-        current_signals += "OB "
-    if trend_bar_signal
-        current_signals += "趋势棒 "
-    if two_bar_signal
-        current_signals += "2BR "
-    if pullback_signal
-        current_signals += "回调 "
-    if buy_climax_signal or sell_climax_signal
-        current_signals += "高潮 "
+    // 活跃信号统计
+    signal_count = 0
+    if pin_signal
+        signal_count += 1
+    if trend_signal
+        signal_count += 1
     if breakout_signal
-        current_signals += "突破 "
+        signal_count += 1
+    if climax_signal
+        signal_count += 1
 
-    signal_text = current_signals == "" ? "无" : current_signals
-    table.cell(info_table, 0, 3, "当前信号:", text_color=color.black, text_size=size.small)
-    table.cell(info_table, 1, 3, signal_text, text_color=color.blue, text_size=size.small)
+    table.cell(info_table, 0, 3, "活跃信号:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 3, str.tostring(signal_count), text_color=color.blue, text_size=size.small)
