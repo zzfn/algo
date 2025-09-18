@@ -102,36 +102,86 @@ is_two_bar_reversal() =>
     else
         [false, false, false]
 
-// 简单趋势线检测（基于最近的高低点）
+// Al Brooks趋势分析
 get_trend_direction() =>
-    lookback = 20
-    highest_price = ta.highest(high, lookback)
-    lowest_price = ta.lowest(low, lookback)
+    // Al Brooks理论：趋势基于EMA关系和价格行为
 
-    // 简化的趋势判断
-    if close > ema20 and close > close[5]
-        1  // 上升趋势
-    else if close < ema20 and close < close[5]
-        -1 // 下降趋势
+    // 1. EMA关系
+    price_above_ema = close > ema20
+    price_below_ema = close < ema20
+
+    // 2. Al Brooks的"Higher Highs/Lower Lows"概念
+    higher_high = high > high[1] and high[1] > high[2]
+    lower_low = low < low[1] and low[1] < low[2]
+
+    // 3. Al Brooks的"强势腿"(Strong Legs)
+    strong_bull_bars = 0
+    strong_bear_bars = 0
+
+    // 检查最近5根K线的强势程度
+    for i = 0 to 4
+        if close[i] > open[i] and (close[i] - open[i]) > (high[i] - low[i]) * 0.6  // 强多棒
+            strong_bull_bars += 1
+        if close[i] < open[i] and (open[i] - close[i]) > (high[i] - low[i]) * 0.6  // 强空棒
+            strong_bear_bars += 1
+
+    // 4. Al Brooks趋势判断
+    // 强多趋势：价格在EMA上方 + 连续高点 + 多个强多棒
+    strong_bull_trend = price_above_ema and higher_high and strong_bull_bars >= 2
+
+    // 强空趋势：价格在EMA下方 + 连续低点 + 多个强空棒
+    strong_bear_trend = price_below_ema and lower_low and strong_bear_bars >= 2
+
+    // 返回趋势状态
+    if strong_bull_trend
+        1   // 强多趋势
+    else if strong_bear_trend
+        -1  // 强空趋势
+    else if price_above_ema
+        0.5 // 弱多趋势
+    else if price_below_ema
+        -0.5 // 弱空趋势
     else
-        0  // 震荡
+        0   // 震荡
 
-// 支撑阻力位检测
+// Al Brooks支撑阻力位检测
 get_support_resistance() =>
-    lookback = 50
+    // Al Brooks理论：关注重要的前期高低点和测试位
+    lookback_major = 100  // 主要趋势的回看周期
+    lookback_minor = 20   // 近期高低点
 
-    // 寻找历史关键高低点（不包括当前K线）
-    recent_high = ta.highest(high[1], lookback)
-    recent_low = ta.lowest(low[1], lookback)
+    // 1. 寻找重要的前期高点（阻力位候选）
+    major_high_1 = ta.highest(high, lookback_major)
+    major_high_2 = ta.highest(high[20], lookback_major - 20)  // 第二个高点
+    recent_high = ta.highest(high, lookback_minor)
 
-    // 检测是否接近关键位（用于信息显示）
-    resistance_distance = recent_high > 0 ? math.abs(close - recent_high) / recent_high : 1
-    support_distance = recent_low > 0 ? math.abs(close - recent_low) / recent_low : 1
+    // 2. 寻找重要的前期低点（支撑位候选）
+    major_low_1 = ta.lowest(low, lookback_major)
+    major_low_2 = ta.lowest(low[20], lookback_major - 20)   // 第二个低点
+    recent_low = ta.lowest(low, lookback_minor)
 
-    is_near_resistance = resistance_distance < 0.01 and high < recent_high
-    is_near_support = support_distance < 0.01 and low > recent_low
+    // 3. Al Brooks重要概念：测试前期高低点
+    // 选择最相关的支撑阻力位
+    resistance_level = close > ema20 ? recent_high : major_high_1
+    support_level = close < ema20 ? recent_low : major_low_1
 
-    [is_near_resistance, is_near_support, recent_high, recent_low]
+    // 4. Al Brooks的"Strong Legs"概念：价格距离EMA的强势表现
+    price_above_ema = close > ema20
+    price_below_ema = close < ema20
+    strong_bull_leg = price_above_ema and close > close[5] and close > close[10]
+    strong_bear_leg = price_below_ema and close < close[5] and close < close[10]
+
+    // 5. 检测是否接近关键位（Al Brooks的测试概念）
+    resistance_distance = resistance_level > 0 ? math.abs(close - resistance_level) / resistance_level : 1
+    support_distance = support_level > 0 ? math.abs(close - support_level) / support_level : 1
+
+    // Al Brooks理论：在强势腿中，测试阻力/支撑的概率更高
+    test_threshold = strong_bull_leg or strong_bear_leg ? 0.02 : 0.01
+
+    is_near_resistance = resistance_distance < test_threshold and close <= resistance_level
+    is_near_support = support_distance < test_threshold and close >= support_level
+
+    [is_near_resistance, is_near_support, resistance_level, support_level]
 
 // 获取线条样式
 get_line_style(style_str) =>
@@ -205,9 +255,14 @@ plot(show_ema20 ? ema20 : na, color=ema20_color, linewidth=2, title="EMA20")
 plot(show_support_resistance ? resistance_level : na, title="阻力位", color=color.red, style=plot.style_line, linewidth=1)
 plot(show_support_resistance ? support_level : na, title="支撑位", color=color.green, style=plot.style_line, linewidth=1)
 
-// 趋势背景色
-trend_bgcolor = trend_direction == 1 ? color.new(color.green, 95) : trend_direction == -1 ? color.new(color.red, 95) : na
-bgcolor(trend_bgcolor, title="趋势背景")
+// Al Brooks趋势背景色
+trend_bgcolor =
+     trend_direction == 1 ? color.new(color.green, 90) :      // 强多趋势
+     trend_direction == -1 ? color.new(color.red, 90) :       // 强空趋势
+     trend_direction == 0.5 ? color.new(color.green, 97) :    // 弱多趋势
+     trend_direction == -0.5 ? color.new(color.red, 97) : na  // 弱空趋势
+
+bgcolor(trend_bgcolor, title="Al Brooks趋势背景")
 
 // 在图表上绘制一条分隔线来标记新的交易日
 bgcolor(is_new_day ? color.new(color.gray, 90) : na, title="新交易日背景")
@@ -220,10 +275,18 @@ if barstate.islast
     table.cell(info_table, 0, 1, "交易日期:", text_color=color.black, text_size=size.small)
     table.cell(info_table, 1, 1, str.format("{0}/{1}/{2}", year, month, dayofmonth), text_color=color.blue, text_size=size.normal)
 
-    // 趋势状态
-    trend_text = trend_direction == 1 ? "上升" : trend_direction == -1 ? "下降" : "震荡"
-    trend_color = trend_direction == 1 ? color.green : trend_direction == -1 ? color.red : color.gray
-    table.cell(info_table, 0, 2, "趋势:", text_color=color.black, text_size=size.small)
+    // Al Brooks趋势状态
+    trend_text =
+         trend_direction == 1 ? "强多趋势" :
+         trend_direction == -1 ? "强空趋势" :
+         trend_direction == 0.5 ? "弱多趋势" :
+         trend_direction == -0.5 ? "弱空趋势" : "震荡"
+
+    trend_color =
+         trend_direction == 1 or trend_direction == 0.5 ? color.green :
+         trend_direction == -1 or trend_direction == -0.5 ? color.red : color.gray
+
+    table.cell(info_table, 0, 2, "AB趋势:", text_color=color.black, text_size=size.small)
     table.cell(info_table, 1, 2, trend_text, text_color=trend_color, text_size=size.normal)
 
     // 支撑阻力状态
