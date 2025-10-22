@@ -86,8 +86,8 @@ class StrategyEngine:
             # 发布市场分析结果事件
             self._emit_market_analysis_update(market_context)
 
-            # 5. 执行决策（包含风险管理）
-            final_signal = ExecutionEngine.process_signal(signal, market_context)
+            # 5. 执行决策（包含风险管理与真实下单）
+            final_signal = ExecutionEngine.process_signal(signal, market_context, self.config)
 
             if final_signal:
                 self.last_signal = final_signal

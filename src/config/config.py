@@ -39,6 +39,10 @@ class TradingConfig:
     # Redis配置
     redis: RedisConfig
 
+    # 交易执行设置
+    default_order_qty: int
+    time_in_force: str
+
     @classmethod
     def create(cls, config_path: str = None) -> 'TradingConfig':
         """创建配置实例，自动加载所有配置"""
@@ -68,12 +72,19 @@ class TradingConfig:
             db=redis_config.get('db', 0)
         )
 
+        # 交易执行相关配置
+        default_order_qty = int(os.getenv("ALPACA_DEFAULT_ORDER_QTY", "1"))
+        time_in_force = "IOC"
+        is_test = os.getenv("ALPACA_IS_TEST", "false").lower() == "true"
+
         return cls(
             symbols=symbols,
             api_key=api_key,
             secret_key=secret_key,
-            is_test=False,  # 默认测试模式
+            is_test=is_test,
             data_feed=DataFeed.IEX,  # 默认数据源
             buffer_size=1000,  # 默认缓存大小
-            redis=redis
+            redis=redis,
+            default_order_qty=default_order_qty,
+            time_in_force=time_in_force
         )
