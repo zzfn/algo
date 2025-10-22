@@ -76,7 +76,11 @@ class StrategyEngine:
                 return None
 
             # 集成的信号生成（包含市场分析、模式识别和信号生成）
-            signal, market_context = PriceActionAnalyzer.signal_generation(recent_bars, bar_data)
+            signal, market_context = PriceActionAnalyzer.signal_generation(
+                recent_bars,
+                bar_data,
+                last_signal=self.last_signal
+            )
             self.current_context = market_context
 
             # 发布市场分析结果事件

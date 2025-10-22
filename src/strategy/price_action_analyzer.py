@@ -11,6 +11,7 @@ from enum import Enum
 
 from models.market_data import BarData
 from models.strategy_data import TradingSignal, MarketContext
+from risk.risk_manager import RiskManager
 
 
 class BarQuality(Enum):
@@ -207,13 +208,23 @@ class PriceActionAnalyzer:
         return patterns
 
     @staticmethod
-    def signal_generation(bars: pd.DataFrame, bar: BarData) -> Tuple[Optional[TradingSignal], MarketContext]:
+    def signal_generation(
+        bars: pd.DataFrame,
+        bar: BarData,
+        last_signal: Optional[TradingSignal] = None
+    ) -> Tuple[Optional[TradingSignal], MarketContext]:
         """纯函数：集成市场分析、模式识别和信号生成，返回信号和市场分析结果"""
         # 1. 市场分析
         context = PriceActionAnalyzer.market_analysis(bars, bar)
 
         # 2. 模式识别
         patterns = PriceActionAnalyzer.pattern_recognition(bars, context, bar)
+
+        def _apply_risk(candidate: TradingSignal):
+            decision = RiskManager.apply_risk_filters(candidate, context, last_signal=last_signal)
+            if decision.signal:
+                return decision.signal, context
+            return None
 
         # 3. 基于模式和市场背景生成信号
         if 'breakout' in patterns:
@@ -224,51 +235,63 @@ class PriceActionAnalyzer:
                 context.trend in ["UPTREND", "SIDEWAYS"]):
 
                 confidence = 0.8 if context.trend == "UPTREND" else 0.6
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="BUY",
                     confidence=confidence,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向上突破 + 上升趋势"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
             # 下跌突破信号 - Al Brooks: 专注价格行为，不依赖成交量
             if (breakout['low_break'] and
                 context.trend in ["DOWNTREND", "SIDEWAYS"]):
 
                 confidence = 0.8 if context.trend == "DOWNTREND" else 0.6
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="SELL",
                     confidence=confidence,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向下突破 + 下降趋势"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
         # Al Brooks高级模式信号
         # 二腿修正信号
         if 'two_leg_pullback' in patterns:
             pullback = patterns['two_leg_pullback']
             if pullback['type'] == 'bullish_two_leg' and pullback['strength'] > 0.3:
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="BUY",
                     confidence=0.75,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="二腿修正后看涨信号"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
             elif pullback['type'] == 'bearish_two_leg' and pullback['strength'] > 0.3:
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="SELL",
                     confidence=0.75,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="二腿修正后看跌信号"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
         # 楔形突破信号
         if 'wedge' in patterns:
@@ -276,147 +299,145 @@ class PriceActionAnalyzer:
             if wedge['type'] == 'converging_wedge':
                 # 收敛楔形突破通常延续原趋势
                 if context.trend == "UPTREND":
-                    return TradingSignal(
+                    candidate = TradingSignal(
                         symbol=bar.symbol,
                         signal_type="BUY",
                         confidence=0.7,
                         price=bar.close,
                         timestamp=bar.timestamp,
                         reason="收敛楔形向上突破"
-                    ), context
+                    )
+                    result = _apply_risk(candidate)
+                    if result:
+                        return result
                 elif context.trend == "DOWNTREND":
-                    return TradingSignal(
+                    candidate = TradingSignal(
                         symbol=bar.symbol,
                         signal_type="SELL",
                         confidence=0.7,
                         price=bar.close,
                         timestamp=bar.timestamp,
                         reason="收敛楔形向下突破"
-                    ), context
+                    )
+                    result = _apply_risk(candidate)
+                    if result:
+                        return result
 
         # 趋势线突破信号
         if 'trendline_break' in patterns:
             trendline = patterns['trendline_break']
             if trendline['signal'] == 'bullish' and trendline['break_strength'] > 0.01:
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="BUY",
                     confidence=0.65,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向上突破下降趋势线"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
             elif trendline['signal'] == 'bearish' and trendline['break_strength'] > 0.01:
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="SELL",
                     confidence=0.65,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="向下突破上升趋势线"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
         # 假突破反转信号
         if 'failed_breakout' in patterns:
             failed = patterns['failed_breakout']
             if failed['signal'] == 'bullish_reversal':
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="BUY",
                     confidence=0.8,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="假突破后看涨反转"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
             elif failed['signal'] == 'bearish_reversal':
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="SELL",
                     confidence=0.8,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="假突破后看跌反转"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
         # 测试模式信号（支撑阻力位测试）
         if 'test' in patterns:
             test = patterns['test']
             if test['type'] == 'support_test' and test['test_quality'] == 'strong':
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="BUY",
                     confidence=0.6,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="强支撑位测试反弹"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
             elif test['type'] == 'resistance_test' and test['test_quality'] == 'strong':
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="SELL",
                     confidence=0.6,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="强阻力位测试回落"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
         # 基本反转信号（只在强趋势中考虑）
         if 'reversal' in patterns:
             reversal = patterns['reversal']
 
             if reversal.get('bullish_reversal', False):
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="BUY",
                     confidence=0.7,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="强势看涨反转模式"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
             if reversal.get('bearish_reversal', False):
-                return TradingSignal(
+                candidate = TradingSignal(
                     symbol=bar.symbol,
                     signal_type="SELL",
                     confidence=0.7,
                     price=bar.close,
                     timestamp=bar.timestamp,
                     reason="强势看跌反转模式"
-                ), context
+                )
+                result = _apply_risk(candidate)
+                if result:
+                    return result
 
         return None, context
-
-    @staticmethod
-    def risk_management(signal: Optional[TradingSignal],
-                       context: MarketContext,
-                       last_signal: Optional[TradingSignal]) -> Optional[TradingSignal]:
-        """纯函数：风险管理 - 过滤和调整信号"""
-        if not signal:
-            return None
-
-        # 波动率过滤
-        if context.volatility > 5.0:
-            return None
-
-        # 成交量过滤
-        if context.volume_profile == "LOW":
-            # 创建新的信号对象，降低置信度
-            return TradingSignal(
-                symbol=signal.symbol,
-                signal_type=signal.signal_type,
-                confidence=signal.confidence * 0.7,
-                price=signal.price,
-                timestamp=signal.timestamp,
-                reason=signal.reason + " (成交量偏低)"
-            )
-
-        # 信号频率控制
-        if (last_signal and
-            signal.signal_type == last_signal.signal_type and
-            (signal.timestamp - last_signal.timestamp).total_seconds() < 300):
-            return None
-
-        return signal
 
     # Al Brooks高级模式识别方法
     @staticmethod

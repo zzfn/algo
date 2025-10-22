@@ -9,6 +9,7 @@ from datetime import datetime
 from models.strategy_data import TradingSignal, MarketContext
 from utils.log import setup_logging
 from utils.events import publish_event, EventTypes
+from risk.risk_manager import RiskManager
 
 log = setup_logging(module_prefix='EXECUTION')
 
@@ -56,32 +57,22 @@ class ExecutionEngine:
     def _risk_management(signal: TradingSignal,
                         context: MarketContext) -> Optional[TradingSignal]:
         """风险管理 - 过滤和调整信号"""
-        # 波动率过滤
-        if context.volatility > 5.0:
-            log.warning(f"{signal.symbol}: 波动率过高({context.volatility:.2f})，拒绝信号")
-            return None
-
-        # 成交量过滤
-        if context.volume_profile == "LOW":
-            log.info(f"{signal.symbol}: 成交量偏低，降低信号置信度")
-            return TradingSignal(
-                symbol=signal.symbol,
-                signal_type=signal.signal_type,
-                confidence=signal.confidence * 0.7,
-                price=signal.price,
-                timestamp=signal.timestamp,
-                reason=signal.reason + " (成交量偏低)"
-            )
-
-        # 信号频率控制
         last_signal = ExecutionEngine._last_signals.get(signal.symbol)
-        if (last_signal and
-            signal.signal_type == last_signal.signal_type and
-            (signal.timestamp - last_signal.timestamp).total_seconds() < 300):
-            log.info(f"{signal.symbol}: 信号频率过高，跳过重复信号")
+        decision = RiskManager.apply_risk_filters(signal, context, last_signal=last_signal)
+
+        if decision.signal is None:
+            if decision.reason == "volatility_high":
+                log.warning(f"{signal.symbol}: 波动率过高({context.volatility:.2f})，拒绝信号")
+            elif decision.reason == "duplicate_signal":
+                log.info(f"{signal.symbol}: 信号频率过高，跳过重复信号")
+            else:
+                log.info(f"{signal.symbol}: 风险管理拒绝信号")
             return None
 
-        return signal
+        if decision.adjusted:
+            log.info(f"{signal.symbol}: 成交量偏低，调整置信度至{decision.signal.confidence:.2f}")
+
+        return decision.signal
 
     @staticmethod
     def _execution_decision(signal: TradingSignal,
